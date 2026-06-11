@@ -133,6 +133,13 @@
     "has_cs_degree": "Yes",
     "years_experience": "0 years (Fresher - Internships only)",
     "willing_to_relocate": "Yes",
-    "work_mode_preference": "Remote / Hybrid / Onsite"
+    "work_mode_preference": "Remote / Hybrid / Onsite",
+    "security_clearance": "No",
+    "security_clearance_level": "None",
+    "polygraph_level": "None",
+    "md_agency_clearance": "No",
+    "sexual_orientation": "Decline to Self-Identify",
+    "transgender": "No",
+    "hispanic_latino": "No"
   }
 }

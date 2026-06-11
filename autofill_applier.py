@@ -287,7 +287,25 @@ def find_saved_response(label_text, custom_responses):
     if "experience" in label and ("years" in label or "how many" in label):
         return custom_responses.get("years_experience")
         
-    # 10. Substring match
+    # 10. Security Clearance & Polygraph (Greenhouse/Captivation)
+    if "security clearance" in label or "active clearance" in label or ("clearance" in label and "hold" in label):
+        return custom_responses.get("security_clearance")
+    if "level of security clearance" in label or "clearance do you hold" in label:
+        return custom_responses.get("security_clearance_level")
+    if "polygraph" in label:
+        return custom_responses.get("polygraph_level")
+    if "md agency" in label:
+        return custom_responses.get("md_agency_clearance")
+        
+    # 11. Demographic Detail Extensions (Greenhouse/Captivation)
+    if "sexual orientation" in label or "sexual" in label:
+        return custom_responses.get("sexual_orientation")
+    if "transgender" in label:
+        return custom_responses.get("transgender")
+    if "hispanic" in label or "latino" in label:
+        return custom_responses.get("hispanic_latino")
+        
+    # 12. Substring match
     for key, val in custom_responses.items():
         clean_key = key.replace('_', ' ')
         if clean_key in label or label in clean_key:
@@ -358,6 +376,12 @@ def fill_custom_fields_with_saved_responses(page, profile, company_name, job_tit
                 
                 if saved_val is not None:
                     print(f"    [MATCHED USER RESPONSES] Reusing saved response: '{saved_val[:50]}'")
+                    
+                    # Detect custom combobox dropdowns (e.g. React Select)
+                    role_attr = el.get_attribute("role") or ""
+                    class_attr = el.get_attribute("class") or ""
+                    is_combobox = role_attr == "combobox" or "select__input" in class_attr
+                    
                     if el_type == "dropdown":
                         options_data = el.evaluate("""node => {
                             return Array.from(node.options).map(opt => ({
@@ -376,6 +400,14 @@ def fill_custom_fields_with_saved_responses(page, profile, company_name, job_tit
                         else:
                             if options_data:
                                 el.select_option(index=1)
+                    elif is_combobox:
+                        print(f"    Selected option via combobox input: '{saved_val}'")
+                        el.click()
+                        page.wait_for_timeout(300)
+                        el.fill(saved_val)
+                        page.wait_for_timeout(300)
+                        page.keyboard.press("Enter")
+                        page.wait_for_timeout(300)
                     else:
                         el.fill(saved_val)
                 else:
