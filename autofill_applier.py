@@ -305,7 +305,39 @@ def find_saved_response(label_text, custom_responses):
     if "hispanic" in label or "latino" in label:
         return custom_responses.get("hispanic_latino")
         
-    # 12. Substring match
+    # 12. Education Details
+    if "graduation year" in label or "year of graduation" in label or "grad year" in label:
+        return custom_responses.get("graduation_year")
+    if "gpa" in label or "cgpa" in label or "grades" in label:
+        return custom_responses.get("gpa_cgpa")
+    if "university" in label or "college" in label or "school name" in label:
+        return custom_responses.get("university_name")
+        
+    # 13. Specific Skill Experience
+    if "python" in label and ("years" in label or "experience" in label):
+        return custom_responses.get("python_experience")
+    if ("react" in label or "frontend" in label) and ("years" in label or "experience" in label):
+        return custom_responses.get("react_experience")
+    if ("sql" in label or "database" in label) and ("years" in label or "experience" in label):
+        return custom_responses.get("sql_experience")
+    if ("javascript" in label or "js" in label or "typescript" in label or "ts" in label) and ("years" in label or "experience" in label):
+        return custom_responses.get("js_ts_experience")
+    if ("machine learning" in label or "ai" in label or "ml" in label or "artificial intelligence" in label) and ("years" in label or "experience" in label):
+        return custom_responses.get("ai_ml_experience")
+        
+    # 14. Voluntary Acknowledgment & Certifications
+    if "background check" in label or "background screen" in label or "consumer report" in label:
+        return custom_responses.get("agree_background_check")
+    if "certify" in label or "accurate" in label or "truthful" in label or "correct" in label or "under penalty" in label:
+        return custom_responses.get("certify_correct_information")
+        
+    # 15. Open-Ended Questions
+    if "why do you want to join" in label or "why our company" in label or "interest in this role" in label or "interest in us" in label:
+        return custom_responses.get("why_join_company")
+    if "challenging project" in label or "project you built" in label or "describe a project" in label:
+        return custom_responses.get("challenging_project_description")
+        
+    # 16. Substring match
     for key, val in custom_responses.items():
         clean_key = key.replace('_', ' ')
         if clean_key in label or label in clean_key:

@@ -140,6 +140,18 @@
     "md_agency_clearance": "No",
     "sexual_orientation": "Decline to Self-Identify",
     "transgender": "No",
-    "hispanic_latino": "No"
+    "hispanic_latino": "No",
+    "graduation_year": "2026",
+    "gpa_cgpa": "8.93 / 10.0 CGPA",
+    "university_name": "Vignan's Institute of Information Technology",
+    "python_experience": "2 years",
+    "react_experience": "1 year",
+    "sql_experience": "2 years",
+    "js_ts_experience": "1 year",
+    "ai_ml_experience": "1 year",
+    "agree_background_check": "Yes",
+    "certify_correct_information": "Yes",
+    "why_join_company": "I am excited to join your team to apply my expertise in software engineering and AI/ML to build high-performance products. I am looking forward to collaborating and contributing to the company's growth.",
+    "challenging_project_description": "I developed 'Civic Desk', an AI-powered civic issue management web platform using Flask, React, and Supabase. I integrated image classification and geolocation mapping to automate issue reporting and tracking, which greatly improved transparency and speed of response."
   }
 }
