@@ -1,0 +1,18 @@
+# Playwright local browser profile
+playwright_user_data/
+SingletonLock
+
+# Python cache and byte-code
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment files
+.env
+.env.local
+
+# Operating System files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store

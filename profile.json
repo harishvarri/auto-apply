@@ -1,0 +1,138 @@
+{
+  "personal": {
+    "first_name": "Harish",
+    "last_name": "Varri",
+    "full_name": "Harish Varri",
+    "email": "harishvarri0@gmail.com",
+    "phone": "+91-9550573580",
+    "phone_country_code": "+91",
+    "phone_national": "9550573580",
+    "location": "Visakhapatnam, Andhra Pradesh, India",
+    "city": "Visakhapatnam",
+    "state": "Andhra Pradesh",
+    "country": "India",
+    "linkedin": "ttps://www.linkedin.com/in/harish-varri-617804269/",
+    "github": "htthps://github.com/harishvarri",
+    "portfolio": "",
+    "resume_path": "C:\\Users\\haris\\.gemini\\antigravity\\scratch\\job_assistant\\harish_varri_resume.pdf"
+  },
+  "education": [
+    {
+      "degree": "B.Tech",
+      "major": "Computer Science and Engineering (AI)",
+      "school": "Vignan's Institute of Information Technology",
+      "location": "Duvvada, Andhra Pradesh",
+      "gpa": "8.93",
+      "gpa_max": "10.0",
+      "start_year": "2022",
+      "end_year": "2026"
+    },
+    {
+      "degree": "Intermediate",
+      "major": "MPC",
+      "school": "Narayana Junior College",
+      "location": "Visakhapatnam, Andhra Pradesh",
+      "gpa": "95.9%",
+      "start_year": "2020",
+      "end_year": "2022"
+    },
+    {
+      "degree": "SSC (10th Grade)",
+      "major": "General",
+      "school": "Sri Suryodaya High School",
+      "location": "Visakhapatnam, Andhra Pradesh",
+      "gpa": "100%",
+      "start_year": "2019",
+      "end_year": "2020"
+    }
+  ],
+  "experience": [
+    {
+      "role": "AI Developer Intern",
+      "company": "Hrud.ai",
+      "location": "Visakhapatnam, Andhra Pradesh",
+      "start_date": "Jan 2026",
+      "end_date": "Present",
+      "description": "Contributed to the development of SaaS platforms, full-stack web applications, and Android applications using React, TypeScript, Supabase, and Vercel deployment. Collaborated with dev teams leveraging modern AI tools (Claude, Google AI Studio, Lovable, Android Studio) for rapid development."
+    },
+    {
+      "role": "Software Developer Intern",
+      "company": "Symbiosys Technologies",
+      "location": "Visakhapatnam, Andhra Pradesh",
+      "start_date": "2024",
+      "end_date": "2024",
+      "description": "Developed a Python application to automate asset data extraction from HTML files using BeautifulSoup. Integrated user-friendly file upload interface. Exported structured asset information into Excel with Pandas for reporting."
+    }
+  ],
+  "projects": [
+    {
+      "title": "Civic Desk",
+      "technologies": "Flask, React, Supabase, PostgreSQL, AI",
+      "description": "Developed an AI-powered civic issue management platform to streamline reporting of urban problems. Implemented image classification and location input for automated complaint detection. Enhanced transparency through real-time tracking dashboards."
+    },
+    {
+      "title": "Career Clarity Hub Web App",
+      "technologies": "Python, Streamlit, Gemini AI",
+      "description": "Developed an AI-powered platform providing personalized career suggestions using Gemini AI. Built responsive Streamlit UI with CSS. Integrated resume analysis and job-matching features."
+    }
+  ],
+  "skills": {
+    "programming_languages": [
+      "Python",
+      "C++",
+      "C",
+      "SQL"
+    ],
+    "data_analytics": [
+      "Power BI",
+      "Excel",
+      "Pandas",
+      "Numpy",
+      "Data Cleaning"
+    ],
+    "frameworks": [
+      "Django",
+      "MERN Stack",
+      "Artificial Intelligence",
+      "Web Programming",
+      "Supabase",
+      "Github",
+      "Vercel"
+    ],
+    "core_subjects": [
+      "Database Management Systems (DBMS)",
+      "Operating Systems",
+      "Computer Network"
+    ],
+    "soft_skills": [
+      "Problem-Solving",
+      "Teamwork",
+      "Adaptability",
+      "Time Management",
+      "Critical Thinking"
+    ]
+  },
+  "certifications": [
+    "Cloud Foundations – AWS Academy",
+    "Machine Learning with Python – IBM Cognitive Class"
+  ],
+  "custom_responses": {
+    "sponsorship_us": "Yes",
+    "authorized_us": "No",
+    "authorized_in": "Yes",
+    "sponsorship_in": "No",
+    "notice_period": "Immediate (0 days)",
+    "expected_salary": "As per company standards",
+    "gender": "Male",
+    "race_ethnicity": "Asian",
+    "veteran_status": "I am not a protected veteran",
+    "disability_status": "No, I do not have a disability",
+    "preferred_pronouns": "He/Him",
+    "hear_about_us": "LinkedIn",
+    "summary_ai_experience": "I have hands-on experience as an AI Developer Intern at Hrud.ai building web apps using React, TS, Supabase, and leveraging Gemini/Claude APIs, and as a Software Developer Intern at Symbiosys Technologies building Python automation scripts.",
+    "has_cs_degree": "Yes",
+    "years_experience": "0 years (Fresher - Internships only)",
+    "willing_to_relocate": "Yes",
+    "work_mode_preference": "Remote / Hybrid / Onsite"
+  }
+}
