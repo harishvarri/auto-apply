@@ -13,6 +13,9 @@ const runScraperBtn = document.getElementById('runScraperBtn');
 const batchApplyBtn = document.getElementById('batchApplyBtn');
 const profileForm = document.getElementById('profileForm');
 const toastEl = document.getElementById('toast');
+const quickApplyBtn = document.getElementById('quickApplyBtn');
+const parseResumeBtn = document.getElementById('parseResumeBtn');
+const parseResumeProfileBtn = document.getElementById('parseResumeProfileBtn');
 
 // Stats Elements
 const statTotalEl = document.getElementById('statTotal');
@@ -92,6 +95,7 @@ async function loadData() {
             renderStats();
             filterAndRenderJobs();
             filterAndRenderIndiaJobs();
+            renderCustomJobs();
         }
     } catch (e) {
         showToast("Error loading databases. Please run server.py", true);
@@ -788,6 +792,125 @@ indiaBatchApplyBtn.addEventListener('click', async () => {
         indiaBatchApplyBtn.innerText = "🚀 Apply Batch (Top 10)";
     }
 });
+
+// Quick Apply — paste URLs
+quickApplyBtn.addEventListener('click', async () => {
+    const raw = document.getElementById('quickApplyUrls').value.trim();
+    const urls = raw.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
+    if (urls.length === 0) {
+        showToast("Please paste at least one valid URL.", true);
+        return;
+    }
+    quickApplyBtn.disabled = true;
+    quickApplyBtn.innerText = "Launching...";
+    const resultsEl = document.getElementById('quickApplyResults');
+    resultsEl.innerHTML = urls.map(u => `<div style="padding:0.6rem;margin:0.4rem 0;background:var(--glass);border-radius:8px;border:1px solid var(--glass-border);font-size:0.85rem;"><span style="color:var(--text-muted);">⏳ Pending</span> — ${escapeHtml(u.slice(0, 80))}</div>`).join('');
+
+    try {
+        const res = await fetch('/api/apply-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        showToast(`Launched auto-apply for ${urls.length} URL(s)!`);
+        quickApplyBtn.innerText = "Applying in browser...";
+
+        // Poll until all custom jobs are resolved
+        const jobIds = data.job_ids;
+        let polls = 0;
+        const iv = setInterval(async () => {
+            polls++;
+            await loadData();
+            const custom = jobs.filter(j => jobIds.includes(j.id));
+            resultsEl.innerHTML = custom.map(j => {
+                const icon = j.status === 'Applied' ? '✅' : j.status === 'Review Required' ? '⚠️' : '⏳';
+                const color = j.status === 'Applied' ? 'var(--success)' : j.status === 'Review Required' ? 'var(--warning)' : 'var(--text-muted)';
+                return `<div style="padding:0.6rem;margin:0.4rem 0;background:var(--glass);border-radius:8px;border:1px solid var(--glass-border);font-size:0.85rem;"><span style="color:${color};">${icon} ${escapeHtml(j.status)}</span> — <b>${escapeHtml(j.title)}</b> @ ${escapeHtml(j.company)}</div>`;
+            }).join('');
+            const allDone = custom.every(j => j.status !== 'Pending');
+            if (allDone || polls >= 80) {
+                clearInterval(iv);
+                quickApplyBtn.disabled = false;
+                quickApplyBtn.innerText = "Auto-Apply to All URLs";
+                const applied = custom.filter(j => j.status === 'Applied').length;
+                showToast(`Quick Apply done! ${applied}/${urls.length} Applied.`);
+            }
+        }, 4000);
+    } catch (e) {
+        showToast("Error: " + e.message, true);
+        quickApplyBtn.disabled = false;
+        quickApplyBtn.innerText = "Auto-Apply to All URLs";
+    }
+});
+
+// Parse Resume with AI — shared handler
+async function handleParseResume(btn) {
+    btn.disabled = true;
+    const origText = btn.innerText;
+    btn.innerText = "Parsing...";
+    const statusEl = document.getElementById('parseResumeStatus');
+    if (statusEl) statusEl.innerText = "Reading resume with Gemini...";
+    try {
+        const res = await fetch('/api/parse-resume', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Parse failed');
+        // Populate matching form fields
+        const form = document.getElementById('profileForm');
+        const fieldMap = {
+            full_name: 'full_name', email: 'email', phone: 'phone',
+            location: 'location', linkedin: 'linkedin', github: 'github',
+            portfolio: 'portfolio', resume_path: 'resume_path'
+        };
+        let filled = 0;
+        for (const [key, name] of Object.entries(fieldMap)) {
+            if (data[key]) {
+                const el = form.querySelector(`[name="${name}"]`);
+                if (el && !el.value) { el.value = data[key]; filled++; }
+            }
+        }
+        // Custom responses
+        const customMap = {
+            graduation_year: 'custom_graduation_year',
+            university_name: 'custom_university_name',
+            gpa_cgpa: 'custom_gpa_cgpa',
+            python_experience: 'custom_python_experience',
+        };
+        for (const [key, name] of Object.entries(customMap)) {
+            if (data[key]) {
+                const el = form.querySelector(`[name="${name}"]`);
+                if (el && !el.value) { el.value = data[key]; filled++; }
+            }
+        }
+        if (statusEl) statusEl.innerText = `Filled ${filled} fields from resume.`;
+        showToast(`AI parsed resume — filled ${filled} profile fields!`);
+    } catch (e) {
+        if (statusEl) statusEl.innerText = "Error: " + e.message;
+        showToast("Resume parse failed: " + e.message, true);
+    } finally {
+        btn.disabled = false;
+        btn.innerText = origText;
+    }
+}
+
+if (parseResumeBtn) parseResumeBtn.addEventListener('click', () => handleParseResume(parseResumeBtn));
+if (parseResumeProfileBtn) parseResumeProfileBtn.addEventListener('click', () => handleParseResume(parseResumeProfileBtn));
+
+// Render custom URL jobs in Quick Apply tab
+function renderCustomJobs() {
+    const el = document.getElementById('customJobsList');
+    if (!el) return;
+    const custom = jobs.filter(j => j.source === 'Custom URL').slice(0, 20);
+    if (custom.length === 0) {
+        el.innerHTML = '<p style="color:var(--text-muted);font-size:0.875rem;">No custom URL applications yet.</p>';
+        return;
+    }
+    el.innerHTML = custom.map(j => {
+        const icon = j.status === 'Applied' ? '✅' : j.status === 'Review Required' ? '⚠️' : '⏳';
+        return `<div style="padding:0.6rem;margin:0.4rem 0;background:var(--glass);border-radius:8px;border:1px solid var(--glass-border);font-size:0.85rem;">${icon} <b>${escapeHtml(j.title)}</b> @ ${escapeHtml(j.company)} — <span style="color:var(--text-muted);">${escapeHtml(j.status)}</span></div>`;
+    }).join('');
+}
 
 // Init
 window.addEventListener('DOMContentLoaded', () => {

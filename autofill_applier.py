@@ -1105,6 +1105,162 @@ def save_success_screenshot(page, job):
         return None
 
 
+def handle_internshala_form(page, profile):
+    """Fill Internshala job/internship application modal or page."""
+    personal = profile.get("personal", {})
+    custom = profile.get("custom_responses", {})
+    try:
+        # Click Apply button if present on the job detail page
+        for sel in ["button#btn-apply", "button.btn-apply", "a.apply-btn", "button:has-text('Apply Now')", "button:has-text('Apply')"]:
+            try:
+                btn = page.locator(sel).first
+                if btn.is_visible():
+                    btn.click()
+                    page.wait_for_timeout(2000)
+                    break
+            except Exception:
+                pass
+        # Fill cover letter
+        for sel in ["textarea[name='cover_letter']", "textarea[id*='cover']", "textarea[placeholder*='cover']"]:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible() and not el.input_value():
+                    cover = custom.get("why_join_company", f"I am enthusiastic about this opportunity and believe my skills in Python, AI/ML, and software development align well with the role requirements.")
+                    el.fill(cover)
+            except Exception:
+                pass
+        # Availability / joining date
+        for sel in ["input[name='availability']", "input[id*='availability']", "input[placeholder*='available']"]:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible() and not el.input_value():
+                    el.fill("Immediately")
+                    el.press("Tab")
+            except Exception:
+                pass
+        # Expected stipend / salary
+        for sel in ["input[name*='stipend']", "input[id*='ctc']", "input[placeholder*='expected']"]:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible() and not el.input_value():
+                    el.fill("As per company norms")
+                    el.press("Tab")
+            except Exception:
+                pass
+        # Submit the application modal
+        for sel in ["button[type='submit']", "button:has-text('Submit')", "input[type='submit']"]:
+            try:
+                btn = page.locator(sel).first
+                if btn.is_visible():
+                    btn.click()
+                    page.wait_for_timeout(2000)
+                    break
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"    [INTERNSHALA] Error: {e}")
+
+
+def handle_naukri_form(page, profile):
+    """Handle Naukri quick-apply flow."""
+    personal = profile.get("personal", {})
+    custom = profile.get("custom_responses", {})
+    try:
+        # Click Apply button on Naukri job page
+        for sel in ["button#apply-button", "a.apply-button", "button:has-text('Apply')", "button:has-text('Easy Apply')"]:
+            try:
+                btn = page.locator(sel).first
+                if btn.is_visible():
+                    btn.click()
+                    page.wait_for_timeout(2500)
+                    break
+            except Exception:
+                pass
+        # Fill notice period if asked
+        for sel in ["input[placeholder*='notice']", "select[id*='notice']"]:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible():
+                    tag = el.evaluate("n=>n.tagName.toLowerCase()")
+                    if tag == "select":
+                        el.select_option(label="Immediately")
+                    else:
+                        el.fill("Immediate")
+                        el.press("Tab")
+            except Exception:
+                pass
+        # Expected CTC
+        for sel in ["input[placeholder*='expected ctc']", "input[id*='ctc']", "input[name*='salary']"]:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible() and not el.input_value():
+                    el.fill("As per company norms")
+                    el.press("Tab")
+            except Exception:
+                pass
+        # Submit
+        for sel in ["button[type='submit']", "button:has-text('Submit')", "button:has-text('Apply Now')"]:
+            try:
+                btn = page.locator(sel).first
+                if btn.is_visible():
+                    btn.click()
+                    page.wait_for_timeout(2000)
+                    break
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"    [NAUKRI] Error: {e}")
+
+
+def handle_linkedin_easy_apply(page, profile):
+    """Handle LinkedIn Easy Apply multi-step modal."""
+    personal = profile.get("personal", {})
+    custom = profile.get("custom_responses", {})
+    try:
+        # Click Easy Apply button
+        for sel in ["button.jobs-apply-button", "button:has-text('Easy Apply')", "button:has-text('Apply')"]:
+            try:
+                btn = page.locator(sel).first
+                if btn.is_visible():
+                    btn.click()
+                    page.wait_for_timeout(2500)
+                    break
+            except Exception:
+                pass
+        # Step through the modal up to 8 steps
+        for step in range(8):
+            try:
+                # Fill any visible inputs
+                autofill_form(page, profile, wait_first=False)
+                fill_required_fields_last_pass(page, profile)
+                page.wait_for_timeout(1000)
+                # Click Next / Review / Submit
+                clicked = False
+                for sel in ["button:has-text('Submit application')", "button:has-text('Review')", "button:has-text('Next')", "button[aria-label*='Continue']"]:
+                    try:
+                        btn = page.locator(sel).first
+                        if btn.is_visible() and btn.is_enabled():
+                            btn.click()
+                            page.wait_for_timeout(2000)
+                            clicked = True
+                            break
+                    except Exception:
+                        pass
+                if not clicked:
+                    break
+                # Check if modal closed (application submitted)
+                try:
+                    modal = page.locator(".jobs-easy-apply-modal, .artdeco-modal").first
+                    if not modal.is_visible():
+                        break
+                except Exception:
+                    break
+            except Exception:
+                break
+    except Exception as e:
+        print(f"    [LINKEDIN] Error: {e}")
+
+
 def handle_redirection_and_apply(page, profile, job, all_jobs):
     try:
         update_status_banner(page, 'info', '🌌 Auto-Applier: Opening job application...')
@@ -1118,7 +1274,50 @@ def handle_redirection_and_apply(page, profile, job, all_jobs):
             "button[id*='apply' i]"
         ]
         
-        if "weworkremotely.com" in page.url:
+        current_url = page.url
+        job_source = job.get("source", "")
+
+        # Platform-specific handlers
+        if "internshala.com" in current_url:
+            print("  [PLATFORM] Internshala detected — using dedicated handler")
+            update_status_banner(page, 'info', '🌌 Auto-Applier: Filling Internshala application...')
+            handle_internshala_form(page, profile)
+            save_success_screenshot(page, job)
+            job['status'] = 'Applied'
+            save_jobs(all_jobs)
+            try:
+                page.close()
+            except Exception:
+                pass
+            return True
+
+        if "naukri.com" in current_url:
+            print("  [PLATFORM] Naukri detected — using dedicated handler")
+            update_status_banner(page, 'info', '🌌 Auto-Applier: Filling Naukri application...')
+            handle_naukri_form(page, profile)
+            save_success_screenshot(page, job)
+            job['status'] = 'Applied'
+            save_jobs(all_jobs)
+            try:
+                page.close()
+            except Exception:
+                pass
+            return True
+
+        if "linkedin.com/jobs" in current_url:
+            print("  [PLATFORM] LinkedIn detected — using Easy Apply handler")
+            update_status_banner(page, 'info', '🌌 Auto-Applier: LinkedIn Easy Apply...')
+            handle_linkedin_easy_apply(page, profile)
+            save_success_screenshot(page, job)
+            job['status'] = 'Applied'
+            save_jobs(all_jobs)
+            try:
+                page.close()
+            except Exception:
+                pass
+            return True
+
+        if "weworkremotely.com" in current_url:
             try:
                 apply_btn = page.locator("a#apply_paragraph").first
                 if apply_btn.is_visible():

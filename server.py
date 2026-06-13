@@ -86,6 +86,179 @@ class JobApplierHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error_response(500, f"Error saving profile: {str(e)}")
                 
+        elif self.path == '/api/apply-url':
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            try:
+                data = json.loads(post_data)
+                urls = data.get('urls', [])
+                if not urls:
+                    self.send_error_response(400, "No URLs provided")
+                    return
+
+                # Load existing jobs
+                if os.path.exists('jobs_database.json'):
+                    with open('jobs_database.json', 'r') as f:
+                        jobs = json.load(f)
+                else:
+                    jobs = []
+
+                import time, re
+                new_job_ids = []
+                for i, url in enumerate(urls[:20]):  # cap at 20
+                    url = url.strip()
+                    if not url.startswith('http'):
+                        continue
+                    # Detect platform
+                    if 'greenhouse' in url:
+                        source = 'Greenhouse Form'
+                    elif 'lever.co' in url:
+                        source = 'Lever Form'
+                    elif 'internshala' in url:
+                        source = 'Internshala'
+                    elif 'naukri' in url:
+                        source = 'Naukri'
+                    elif 'linkedin' in url:
+                        source = 'LinkedIn'
+                    else:
+                        source = 'Custom URL'
+
+                    # Extract a company name hint from URL
+                    domain_match = re.search(r'https?://(?:www\.)?([^/]+)', url)
+                    domain = domain_match.group(1) if domain_match else 'Company'
+
+                    job_id = f"custom_{int(time.time())}_{i}"
+                    jobs.append({
+                        "id": job_id,
+                        "title": "Job Application",
+                        "company": domain,
+                        "location": "India",
+                        "url": url,
+                        "description": f"Custom URL application via Quick Apply. Source: {source}",
+                        "skills_required": ["Python", "SQL"],
+                        "source": "Custom URL",
+                        "date_posted": "June 2026",
+                        "status": "Pending",
+                        "match_rate": 80
+                    })
+                    new_job_ids.append(job_id)
+
+                with open('jobs_database.json', 'w') as f:
+                    json.dump(jobs, f, indent=2)
+
+                print(f"Quick Apply: launching for {len(new_job_ids)} custom URLs")
+                subprocess.Popen([sys_python(), "-u", "autofill_applier.py"] + new_job_ids + ["--web"])
+                self.send_success_response({"status": "launched", "job_ids": new_job_ids})
+            except Exception as e:
+                self.send_error_response(500, f"Error: {str(e)}")
+
+        elif self.path == '/api/parse-resume':
+            try:
+                import base64, urllib.request as ureq
+
+                # Load profile to get resume path
+                if not os.path.exists('profile.json'):
+                    self.send_error_response(400, "profile.json not found")
+                    return
+                with open('profile.json', 'r') as f:
+                    profile = json.load(f)
+
+                resume_path = profile.get('personal', {}).get('resume_path', '')
+                if not resume_path or not os.path.exists(resume_path):
+                    self.send_error_response(400, f"Resume PDF not found at: {resume_path}")
+                    return
+
+                api_key = os.environ.get('GEMINI_API_KEY', '')
+                if not api_key:
+                    self.send_error_response(400, "GEMINI_API_KEY not set")
+                    return
+
+                with open(resume_path, 'rb') as f:
+                    pdf_b64 = base64.b64encode(f.read()).decode('utf-8')
+
+                prompt = """Extract the following information from this resume PDF and return ONLY a valid JSON object with these exact keys. Fill only what you can find; use empty string for missing fields. Return ONLY the JSON, no markdown, no explanation:
+{
+  "full_name": "",
+  "email": "",
+  "phone": "",
+  "location": "",
+  "city": "",
+  "state": "",
+  "linkedin": "",
+  "github": "",
+  "portfolio": "",
+  "university_name": "",
+  "degree": "",
+  "major": "",
+  "gpa_cgpa": "",
+  "graduation_year": "",
+  "years_experience": "",
+  "python_experience": "",
+  "react_experience": "",
+  "sql_experience": "",
+  "summary_ai_experience": "",
+  "why_join_company": ""
+}"""
+
+                payload = {
+                    "contents": [{
+                        "parts": [
+                            {"inline_data": {"mime_type": "application/pdf", "data": pdf_b64}},
+                            {"text": prompt}
+                        ]
+                    }],
+                    "generationConfig": {"temperature": 0.1, "maxOutputTokens": 600}
+                }
+
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={api_key}"
+                req = ureq.Request(url, data=json.dumps(payload).encode('utf-8'),
+                                   headers={"Content-Type": "application/json"}, method='POST')
+                with ureq.urlopen(req, timeout=40) as resp:
+                    res_data = json.loads(resp.read().decode('utf-8'))
+
+                text = res_data['candidates'][0]['content']['parts'][0]['text'].strip()
+                # Strip markdown fences if present
+                if '```' in text:
+                    text = text.split('```')[1]
+                    if text.startswith('json'):
+                        text = text[4:]
+                    text = text.strip()
+
+                extracted = json.loads(text)
+
+                # Merge non-empty extracted fields into profile
+                personal = profile.setdefault('personal', {})
+                field_map = {
+                    'full_name': 'full_name', 'email': 'email', 'phone': 'phone',
+                    'location': 'location', 'city': 'city', 'state': 'state',
+                    'linkedin': 'linkedin', 'github': 'github', 'portfolio': 'portfolio'
+                }
+                for k, v in field_map.items():
+                    if extracted.get(k):
+                        personal.setdefault(v, extracted[k])
+
+                custom = profile.setdefault('custom_responses', {})
+                custom_map = {
+                    'university_name': 'university_name', 'gpa_cgpa': 'gpa_cgpa',
+                    'graduation_year': 'graduation_year', 'years_experience': 'years_experience',
+                    'python_experience': 'python_experience', 'react_experience': 'react_experience',
+                    'sql_experience': 'sql_experience',
+                    'summary_ai_experience': 'summary_ai_experience',
+                    'why_join_company': 'why_join_company'
+                }
+                for k, v in custom_map.items():
+                    if extracted.get(k):
+                        custom.setdefault(v, extracted[k])
+
+                with open('profile.json', 'w') as f:
+                    json.dump(profile, f, indent=2)
+
+                print("Resume parsed and profile updated.")
+                self.send_success_response(extracted)
+
+            except Exception as e:
+                self.send_error_response(500, f"Parse resume error: {str(e)}")
+
         else:
             self.send_error_response(404, "Endpoint not found")
 

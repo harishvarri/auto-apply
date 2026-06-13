@@ -31,6 +31,7 @@
             <nav class="nav-menu">
                 <button class="nav-item active" data-tab="jobs">💼 Global Jobs</button>
                 <button class="nav-item" data-tab="india-jobs">🇮🇳 India Jobs</button>
+                <button class="nav-item" data-tab="quick-apply">⚡ Quick Apply</button>
                 <button class="nav-item" data-tab="profile">👤 Resume Profile</button>
             </nav>
             
@@ -519,11 +520,44 @@
                         
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary" style="padding: 0.9rem 2rem;">Save Profile Settings</button>
+                            <button type="button" id="parseResumeProfileBtn" class="btn btn-secondary" style="padding:0.9rem 1.5rem;">Parse Resume with AI</button>
                         </div>
                     </form>
                 </div>
             </div>
-            
+
+            <!-- Quick Apply Tab -->
+            <div id="quick-applyTab" class="tab-content">
+                <div style="padding: 2rem; max-width: 820px; margin: 0 auto;">
+                    <div class="profile-header" style="margin-bottom: 2rem;">
+                        <h2>Quick Apply — Paste Job URLs</h2>
+                        <p>Paste any job URLs below (Greenhouse, Lever, Internshala, Naukri, LinkedIn). One per line. Gemini AI fills unknown fields automatically.</p>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>Job URLs</h3>
+                        <div class="form-group full-width">
+                            <label>Paste job application URLs (one per line)</label>
+                            <textarea id="quickApplyUrls" rows="8" style="width:100%;background:var(--glass);border:1px solid var(--glass-border);color:var(--text-primary);padding:0.85rem;border-radius:10px;font-family:inherit;font-size:0.9rem;resize:vertical;" placeholder="https://boards.greenhouse.io/company/jobs/123&#10;https://jobs.lever.co/company/abc&#10;https://internshala.com/job/detail/...&#10;https://www.naukri.com/job-listings-...&#10;https://www.linkedin.com/jobs/view/..."></textarea>
+                        </div>
+                        <button id="quickApplyBtn" class="btn btn-primary" style="width:100%;margin-top:1rem;padding:0.9rem;font-size:1rem;">Auto-Apply to All URLs</button>
+                        <div id="quickApplyResults" style="margin-top:1.5rem;"></div>
+                    </div>
+
+                    <div class="form-section" style="margin-top:2rem;">
+                        <h3>AI Resume Parser</h3>
+                        <p style="font-size:0.875rem;color:var(--text-muted);margin-bottom:1rem;">Let Gemini 2.5 Pro read your resume PDF and auto-fill any missing profile fields.</p>
+                        <button id="parseResumeBtn" class="btn btn-secondary" style="padding:0.75rem 1.5rem;">Parse Resume with AI</button>
+                        <span id="parseResumeStatus" style="margin-left:1rem;color:var(--text-muted);font-size:0.875rem;"></span>
+                    </div>
+
+                    <div class="form-section" style="margin-top:2rem;">
+                        <h3>Recent Custom Applications</h3>
+                        <div id="customJobsList" style="margin-top:1rem;"></div>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
 
