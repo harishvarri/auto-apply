@@ -236,10 +236,12 @@ function isIndiaJob(job) {
            loc.includes('hyderabad') || 
            loc.includes('pune') || 
            loc.includes('mumbai') || 
-           loc.includes('noida') || 
-           loc.includes('gurugram') || 
-           loc.includes('gurgaon') || 
-           loc.includes('chennai');
+           loc.includes('noida') ||
+           loc.includes('gurugram') ||
+           loc.includes('gurgaon') ||
+           loc.includes('chennai') ||
+           loc.includes('delhi') ||
+           loc.includes('kolkata');
 }
 
 // Filter and Render Jobs List (Global/Non-India Jobs)

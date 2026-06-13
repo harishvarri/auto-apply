@@ -149,19 +149,20 @@ def scrape_internshala_jobs(seen_urls, jobs, user_skills):
             if r.status_code != 200:
                 continue
             soup = bs4.BeautifulSoup(r.text, 'html.parser')
-            is_internship = 'internship' in page_url
-            # Internshala uses different card classes for jobs vs internships
-            cards = soup.select('.individual_internship') or soup.select('.internship_meta')
+            is_internship = '/internship' in page_url
+            cards = soup.select('.individual_internship')
             for card in cards:
                 try:
-                    title_el = card.select_one('.profile h3, .job_title, .profile a')
-                    company_el = card.select_one('.company_name a, .company_name')
-                    location_els = card.select('.location_link, .locations span, .job_location')
-                    link_el = card.select_one('a.view_detail_button, a[href*="/job/detail"], a[href*="/internship/detail"]')
+                    title_el = card.select_one('.job-internship-name, .profile h3, h3.heading_4_5, .profile a')
+                    company_el = card.select_one('.company-name, .company_name, p.company-name, .company_and_premium')
+                    location_els = card.select('.row-1-item.locations span, .location_link, .locations span, .job_location, #location_names span')
+                    link_el = card.select_one('a.job-title-href, a.view_detail_button, a[href*="/job/detail"], a[href*="/internship/detail"]')
                     if not title_el:
                         continue
                     title = title_el.get_text(strip=True)
                     company = company_el.get_text(strip=True) if company_el else "Company"
+                    # Internshala appends "Actively hiring" to company names — strip it
+                    company = company.replace("Actively hiring", "").strip()
                     location = ", ".join(el.get_text(strip=True) for el in location_els) if location_els else "India"
                     if not location or location.strip() == "":
                         location = "India"
@@ -171,8 +172,7 @@ def scrape_internshala_jobs(seen_urls, jobs, user_skills):
                     if link_el:
                         href = link_el.get('href', '')
                     if not href:
-                        # Try data-url attribute
-                        href = card.get('data-url', '') or card.get('data-href', '')
+                        href = card.get('data-href', '') or card.get('data-url', '')
                     if not href:
                         continue
                     if href.startswith('/'):
@@ -210,147 +210,174 @@ def scrape_internshala_jobs(seen_urls, jobs, user_skills):
 
 
 def scrape_linkedin_india_jobs(seen_urls, jobs, user_skills):
-    """Scrape LinkedIn public job search for India fresher/entry-level roles."""
-    import re, time
-    search_queries = [
-        ("software engineer", "India", "1,2"),    # Entry + Associate level
-        ("data scientist", "India", "1,2"),
-        ("python developer", "India", "1,2"),
-        ("machine learning engineer", "India", "1,2"),
-        ("frontend developer", "India", "1,2"),
+    """Scrape LinkedIn via the public guest job API (no login, bot-safe)."""
+    import time
+    # f_E: 1=Internship, 2=Entry, 3=Associate. f_TPR=r2592000 = last 30 days
+    keywords = [
+        "software engineer", "data scientist", "python developer",
+        "machine learning engineer", "frontend developer", "backend developer",
+        "full stack developer", "data analyst", "software developer intern",
+        "associate software engineer",
     ]
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml',
     }
     added = 0
-    for keyword, location, exp_level in search_queries:
-        try:
-            kw_enc = keyword.replace(' ', '%20')
-            loc_enc = location.replace(' ', '%20')
-            url = f"https://www.linkedin.com/jobs/search/?keywords={kw_enc}&location={loc_enc}&f_E={exp_level}&f_JT=F,I&sortBy=R"
-            r = requests.get(url, headers=headers, timeout=15)
-            if r.status_code != 200:
-                continue
-            soup = bs4.BeautifulSoup(r.text, 'html.parser')
-            cards = soup.select('.job-search-card, .base-card')
-            for card in cards:
-                try:
-                    title_el = card.select_one('.base-search-card__title, h3.base-search-card__title')
-                    company_el = card.select_one('.base-search-card__subtitle, h4.base-search-card__subtitle')
-                    location_el = card.select_one('.job-search-card__location, .base-search-card__metadata span')
-                    link_el = card.select_one('a.base-card__full-link, a[data-tracking-control-name="public_jobs_jserp-result_search-card"]')
-                    if not (title_el and link_el):
+    for keyword in keywords:
+        kw_enc = keyword.replace(' ', '%20')
+        for start in (0, 25, 50):  # paginate up to 75 results per keyword
+            try:
+                url = (
+                    "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+                    f"?keywords={kw_enc}&location=India&f_E=1%2C2%2C3&f_TPR=r2592000&start={start}"
+                )
+                r = requests.get(url, headers=headers, timeout=15)
+                if r.status_code != 200:
+                    break
+                soup = bs4.BeautifulSoup(r.text, 'html.parser')
+                cards = soup.select('li')
+                if not cards:
+                    break
+                page_added = 0
+                for card in cards:
+                    try:
+                        title_el = card.select_one('.base-search-card__title')
+                        company_el = card.select_one('.base-search-card__subtitle')
+                        location_el = card.select_one('.job-search-card__location')
+                        link_el = card.select_one('a.base-card__full-link')
+                        if not (title_el and link_el):
+                            continue
+                        title = title_el.get_text(strip=True)
+                        company = company_el.get_text(strip=True) if company_el else "Company"
+                        job_location = location_el.get_text(strip=True) if location_el else "India"
+                        href = link_el.get('href', '').split('?')[0]
+                        if not href or href in seen_urls:
+                            continue
+                        seen_urls.add(href)
+                        title_lower = title.lower()
+                        skills = ["Python", "SQL"]
+                        if any(k in title_lower for k in ["react", "front", "web", "ui"]):
+                            skills.extend(["MERN Stack", "Web Programming"])
+                        if any(k in title_lower for k in ["data", "ml", "ai", "machine"]):
+                            skills.extend(["Pandas", "Artificial Intelligence"])
+                        match_rate = min(72 + len([s for s in skills if s in user_skills]) * 4, 92)
+                        jobs.append({
+                            "id": f"real_{len(jobs):03d}",
+                            "title": title,
+                            "company": company,
+                            "location": job_location if job_location else "India",
+                            "url": href,
+                            "description": f"{title} at {company} via LinkedIn. Location: {job_location}.",
+                            "skills_required": skills,
+                            "source": "LinkedIn",
+                            "date_posted": "June 2026",
+                            "status": "Pending",
+                            "match_rate": match_rate
+                        })
+                        added += 1
+                        page_added += 1
+                    except Exception:
                         continue
-                    title = title_el.get_text(strip=True)
-                    company = company_el.get_text(strip=True) if company_el else "Company"
-                    job_location = location_el.get_text(strip=True) if location_el else location
-                    href = link_el.get('href', '').split('?')[0]
-                    if not href or href in seen_urls:
-                        continue
-                    seen_urls.add(href)
-                    title_lower = title.lower()
-                    skills = ["Python", "SQL"]
-                    if any(k in title_lower for k in ["react", "front", "web", "ui"]):
-                        skills.extend(["MERN Stack", "Web Programming"])
-                    if any(k in title_lower for k in ["data", "ml", "ai", "machine"]):
-                        skills.extend(["Pandas", "Artificial Intelligence"])
-                    match_rate = min(72 + len([s for s in skills if s in user_skills]) * 4, 92)
-                    jobs.append({
-                        "id": f"real_{len(jobs):03d}",
-                        "title": title,
-                        "company": company,
-                        "location": job_location if job_location else location,
-                        "url": href,
-                        "description": f"{title} at {company} via LinkedIn. Location: {job_location}.",
-                        "skills_required": skills,
-                        "source": "LinkedIn",
-                        "date_posted": "June 2026",
-                        "status": "Pending",
-                        "match_rate": match_rate
-                    })
-                    added += 1
-                except Exception:
-                    continue
-            time.sleep(1)  # polite delay between LinkedIn requests
-        except Exception as e:
-            print(f"  LinkedIn scrape error ({keyword}): {e}")
+                if page_added == 0:
+                    break
+                time.sleep(0.6)  # polite delay between guest API calls
+            except Exception as e:
+                print(f"  LinkedIn scrape error ({keyword} @ {start}): {e}")
+                break
     print(f"  -> LinkedIn India: {added} jobs found.")
     return added
 
 
 def scrape_naukri_india_jobs(seen_urls, jobs, user_skills):
-    """Scrape Naukri.com India fresher job listings via their public search."""
-    import re, urllib.parse
-    search_terms = [
-        ("software engineer", "0to1"),
-        ("python developer", "0to1"),
-        ("data analyst", "0to1"),
-        ("machine learning engineer", "0to1"),
-        ("frontend developer", "0to1"),
+    """Scrape Naukri.com India fresher jobs. Tries JSON API first, falls back to Playwright stealth browser."""
+    # Naukri blocks plain requests (HTTP 406) and renders cards via JS, so we
+    # use a headless stealth Playwright browser with a fresh temp profile.
+    search_slugs = [
+        "software-engineer", "python-developer", "data-analyst",
+        "machine-learning-engineer", "frontend-developer",
+        "software-developer", "data-scientist",
     ]
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'appid': '109',
-        'systemid': '109',
-    }
     added = 0
-    for keyword, experience in search_terms:
-        try:
-            kw_slug = keyword.replace(' ', '-')
-            url = f"https://www.naukri.com/{kw_slug}-jobs-in-india?experience=0"
-            r = requests.get(url, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept-Language': 'en-US,en;q=0.9',
-            }, timeout=15)
-            if r.status_code != 200:
-                continue
-            soup = bs4.BeautifulSoup(r.text, 'html.parser')
-            # Naukri job cards
-            cards = soup.select('article.jobTuple, .job-card, .cust-job-tuple')
-            for card in cards:
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:
+        print("  -> Naukri: Playwright not available, skipping.")
+        return 0
+
+    import tempfile
+    tmp_profile = os.path.join(tempfile.gettempdir(), "naukri_scrape_profile")
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                    "--no-sandbox",
+                ],
+            )
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1366, "height": 900},
+                locale="en-IN",
+            )
+            context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+            page = context.new_page()
+            for slug in search_slugs:
                 try:
-                    title_el = card.select_one('.title a, a.title, .jobTitle')
-                    company_el = card.select_one('.subTitle.ellipsis a, .company-name, .companyName a')
-                    location_el = card.select_one('.ellipsis.locWdth, .location, .jobLocation')
-                    if not title_el:
-                        continue
-                    title = title_el.get_text(strip=True)
-                    company = company_el.get_text(strip=True) if company_el else "Company"
-                    job_location = location_el.get_text(strip=True) if location_el else "India"
-                    href = title_el.get('href', '')
-                    if not href or href in seen_urls:
-                        continue
-                    if href.startswith('/'):
-                        href = 'https://www.naukri.com' + href
-                    seen_urls.add(href)
-                    title_lower = title.lower()
-                    skills = ["Python", "SQL"]
-                    if any(k in title_lower for k in ["react", "front", "web"]):
-                        skills.extend(["MERN Stack"])
-                    if any(k in title_lower for k in ["data", "ml", "ai"]):
-                        skills.extend(["Pandas", "Artificial Intelligence"])
-                    match_rate = min(70 + len([s for s in skills if s in user_skills]) * 4, 90)
-                    jobs.append({
-                        "id": f"real_{len(jobs):03d}",
-                        "title": title,
-                        "company": company,
-                        "location": job_location + (", India" if "india" not in job_location.lower() else ""),
-                        "url": href,
-                        "description": f"{title} at {company} via Naukri.com. Location: {job_location}.",
-                        "skills_required": skills,
-                        "source": "Naukri",
-                        "date_posted": "June 2026",
-                        "status": "Pending",
-                        "match_rate": match_rate
-                    })
-                    added += 1
-                except Exception:
-                    continue
-        except Exception as e:
-            print(f"  Naukri scrape error ({keyword}): {e}")
+                    url = f"https://www.naukri.com/{slug}-jobs-in-india?experience=0"
+                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(3500)  # let JS render the cards
+                    # Naukri job cards (class names change periodically — use broad selectors)
+                    cards = page.query_selector_all("div.srp-jobtuple-wrapper, article.jobTuple, .cust-job-tuple")
+                    for card in cards:
+                        try:
+                            title_el = card.query_selector("a.title")
+                            company_el = card.query_selector("a.comp-name, .companyInfo .subTitle, a.subTitle")
+                            location_el = card.query_selector("span.locWdth, .loc span, .ellipsis.fleft.locWdth")
+                            if not title_el:
+                                continue
+                            title = (title_el.inner_text() or "").strip()
+                            company = (company_el.inner_text() or "").strip() if company_el else "Company"
+                            job_location = (location_el.inner_text() or "").strip() if location_el else "India"
+                            href = title_el.get_attribute("href") or ""
+                            if not href or href in seen_urls:
+                                continue
+                            seen_urls.add(href)
+                            title_lower = title.lower()
+                            skills = ["Python", "SQL"]
+                            if any(k in title_lower for k in ["react", "front", "web"]):
+                                skills.append("MERN Stack")
+                            if any(k in title_lower for k in ["data", "ml", "ai"]):
+                                skills.extend(["Pandas", "Artificial Intelligence"])
+                            match_rate = min(70 + len([s for s in skills if s in user_skills]) * 4, 90)
+                            jobs.append({
+                                "id": f"real_{len(jobs):03d}",
+                                "title": title,
+                                "company": company,
+                                "location": job_location + (", India" if "india" not in job_location.lower() else ""),
+                                "url": href,
+                                "description": f"{title} at {company} via Naukri.com. Location: {job_location}.",
+                                "skills_required": skills,
+                                "source": "Naukri",
+                                "date_posted": "June 2026",
+                                "status": "Pending",
+                                "match_rate": match_rate
+                            })
+                            added += 1
+                        except Exception:
+                            continue
+                except Exception as e:
+                    print(f"  Naukri page error ({slug}): {e}")
+            try:
+                context.close()
+                browser.close()
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"  Naukri Playwright error: {e}")
     print(f"  -> Naukri: {added} jobs found.")
     return added
 
@@ -397,18 +424,50 @@ def scrape_jobs():
     print(" -> Scraping Naukri India jobs...")
     scrape_naukri_india_jobs(seen_urls, jobs, user_skills)
 
+    # Preserve Applied / Review Required statuses from any previous run (match by URL).
+    # Also keep prior custom_* URL applications so Quick Apply history survives a refresh.
+    prior_status = {}
+    prior_custom_jobs = []
+    if os.path.exists('jobs_database.json'):
+        try:
+            with open('jobs_database.json', 'r', encoding='utf-8') as f:
+                old_jobs = json.load(f)
+            for oj in old_jobs:
+                if oj.get('url'):
+                    prior_status[oj['url']] = oj.get('status', 'Pending')
+                if oj.get('source') == 'Custom URL':
+                    prior_custom_jobs.append(oj)
+        except Exception as e:
+            print(f"  (Could not read prior database: {e})")
+
+    # Re-apply preserved statuses
+    for job in jobs:
+        if job['url'] in prior_status and prior_status[job['url']] in ('Applied', 'Review Required'):
+            job['status'] = prior_status[job['url']]
+
+    # Re-attach any prior custom URL applications that aren't already present
+    existing_urls = {j['url'] for j in jobs}
+    for cj in prior_custom_jobs:
+        if cj.get('url') not in existing_urls:
+            jobs.append(cj)
+
     # Sort consolidated list by match rate descending so related jobs appear first!
     jobs.sort(key=lambda j: j['match_rate'], reverse=True)
-    
-    # Re-assign sequential IDs after sorting
+
+    # Re-assign sequential IDs after sorting (keep custom_ ids stable)
     for idx, job in enumerate(jobs):
-        job['id'] = f"real_{idx:03d}"
-        
+        if not str(job.get('id', '')).startswith('custom_'):
+            job['id'] = f"real_{idx:03d}"
+
     # Save the database
     with open('jobs_database.json', 'w') as f:
         json.dump(jobs, f, indent=2)
-        
-    print(f"Database finalized. Found and saved {len(jobs)} active, real Greenhouse and Lever job listings.")
+
+    india_count = sum(1 for j in jobs if any(k in j.get('location', '').lower() for k in
+                      ['india', 'bengaluru', 'bangalore', 'hyderabad', 'pune', 'mumbai',
+                       'noida', 'gurugram', 'gurgaon', 'chennai', 'delhi', 'kolkata']))
+    print(f"Database finalized. Saved {len(jobs)} jobs total ({india_count} India-based) "
+          f"from Greenhouse, Lever, LinkedIn, Internshala, and Naukri.")
 
 if __name__ == '__main__':
     scrape_jobs()

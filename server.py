@@ -9,7 +9,7 @@ PORT = int(os.environ.get('PORT', 8000))
 
 class JobApplierHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
-        if self.path.startswith('/api/apply'):
+        if self.path == '/api/apply' or self.path.startswith('/api/apply?'):
             # Parse content length
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
