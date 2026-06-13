@@ -295,6 +295,28 @@ def autofill_form(page, profile, wait_first=False):
             "input[name*='location' i]", "input[id*='location' i]",
             "input[placeholder*='location' i]", "input[aria-label*='location' i]"
         ], "value": personal.get('location', '')},
+
+        # Address / Street
+        {"selectors": [
+            "input[name*='address' i]", "input[id*='address' i]",
+            "input[placeholder*='address' i]", "input[aria-label*='address' i]",
+            "input[name*='street' i]", "input[id*='street' i]"
+        ], "value": personal.get('street', personal.get('address', ''))},
+
+        # Zip / Pincode / Postal code
+        {"selectors": [
+            "input[name*='zip' i]", "input[id*='zip' i]",
+            "input[name*='postal' i]", "input[id*='postal' i]",
+            "input[name*='pincode' i]", "input[id*='pincode' i]",
+            "input[placeholder*='zip' i]", "input[placeholder*='postal' i]",
+            "input[placeholder*='pincode' i]", "input[placeholder*='pin code' i]"
+        ], "value": personal.get('pincode', personal.get('zip', '530008'))},
+
+        # State
+        {"selectors": [
+            "input[name*='state' i]", "input[id*='state' i]",
+            "input[placeholder*='state' i]", "input[aria-label*='state' i]"
+        ], "value": personal.get('state', 'Andhra Pradesh')},
     ]
     
     filled_count = 0
@@ -426,6 +448,12 @@ def find_saved_response(label_text, profile):
             loc = personal.get("location", "")
             city = loc.split(",")[0].strip() if loc else ""
         return city or personal.get("location", "")
+    if "street" in label or ("address" in label and "email" not in label):
+        return personal.get("street", personal.get("address", ""))
+    if "zip" in label or "postal" in label or "pincode" in label or "pin code" in label:
+        return personal.get("pincode", personal.get("zip", "530008"))
+    if "state" in label and "outside" not in label and "united states" not in label:
+        return personal.get("state", "Andhra Pradesh")
 
     # 0.5. Check user-defined dynamic custom keywords first! (Case-insensitive)
     for keyword, answer in custom_keywords.items():
