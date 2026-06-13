@@ -2,14 +2,170 @@ import sys
 import json
 import os
 import time
+import urllib.request
+import urllib.parse
 from playwright.sync_api import sync_playwright
 
-# Gemini AI disabled - using saved responses only
-HAS_GEMINI = False
+# Gemini AI enabled - fallback using API key
+HAS_GEMINI = True
+
+def call_gemini_api(prompt):
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("    [GEMINI AI WARNING] GEMINI_API_KEY env variable is not set. Skipping Gemini call.")
+        return None
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={api_key}"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": prompt
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 250
+        }
+    }
+    try:
+        req = urllib.request.Request(
+            url, 
+            data=json.dumps(payload).encode('utf-8'), 
+            headers=headers, 
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            text = res_data['candidates'][0]['content']['parts'][0]['text'].strip()
+            return text
+    except Exception as e:
+        print(f"    [GEMINI AI ERROR] Failed calling Gemini API: {e}")
+        return None
+
+def get_gemini_response(label_text, el_type, options_list, profile):
+    personal = profile.get("personal", {})
+    education = profile.get("education", [])
+    experience = profile.get("experience", [])
+    skills = profile.get("skills", {})
+    custom_responses = profile.get("custom_responses", {})
+    
+    candidate_summary = f"""
+Candidate Profile Context:
+Name: {personal.get("full_name")}
+Email: {personal.get("email")}
+Phone: {personal.get("phone")}
+Location: {personal.get("location")}
+Education Details: {json.dumps(education)}
+Work Experience Details: {json.dumps(experience)}
+Technical Skills Details: {json.dumps(skills)}
+Standard Custom Answers: {json.dumps(custom_responses)}
+"""
+    
+    if el_type == "dropdown":
+        prompt = f"""{candidate_summary}
+---
+We are filling out a job application. The form contains a dropdown selection field.
+Question / Field Label: "{label_text}"
+Available Dropdown Options: {json.dumps(options_list)}
+
+Based on the candidate profile context, which option from the options list is the most appropriate?
+Return ONLY the exact option text or value matching one of the options. Do not include any explanations, introduction, markdown code blocks, or extra text."""
+    elif el_type in ["text", "textarea"]:
+        prompt = f"""{candidate_summary}
+---
+We are filling out a job application. The form contains a text input field (type: {el_type}).
+Question / Field Label: "{label_text}"
+
+Based on the candidate profile context, write a brief, professional, and accurate response for this field.
+Return ONLY the response text. Do not include any quotes, markdown blocks, introductory phrasing (like "The answer is..."), or explanations."""
+    elif el_type == "checkbox":
+        prompt = f"""{candidate_summary}
+---
+We are filling out a job application. The form contains a checkbox option.
+Question / Checkbox Label: "{label_text}"
+
+Based on the candidate profile context, should this box be checked? Respond with "Yes" if it should be checked, or "No" if it should remain unchecked.
+Return ONLY "Yes" or "No". Do not include any extra text."""
+    else:
+        return None
+        
+    return call_gemini_api(prompt)
+
+def query_selector_all_across_frames(page, selector):
+    elements = []
+    # page.frames is a list of all Frame objects currently attached
+    for frame in page.frames:
+        try:
+            if frame.is_detached():
+                continue
+            found = frame.query_selector_all(selector)
+            for el in found:
+                elements.append((el, frame))
+        except Exception:
+            pass
+    return elements
+
+def match_option_value(saved_val, options):
+    # options is a list of {"text": "...", "value": "..."}
+    saved_val_lower = saved_val.lower()
+    
+    # 1. Exact match
+    for opt in options:
+        if opt['text'].lower() == saved_val_lower or opt['value'].lower() == saved_val_lower:
+            return opt['value']
+            
+    # 2. Substring match
+    for opt in options:
+        opt_text_lower = opt['text'].lower()
+        if saved_val_lower in opt_text_lower or opt_text_lower in saved_val_lower:
+            return opt['value']
+            
+    # 3. Common abbreviations and demographics
+    for opt in options:
+        text_lower = opt['text'].lower()
+        val_lower = opt['value'].lower()
+        
+        # Gender mapping
+        if saved_val_lower == "male" and (text_lower == "m" or text_lower == "man"):
+            return opt['value']
+        if saved_val_lower == "female" and (text_lower == "f" or text_lower == "woman"):
+            return opt['value']
+        if "identify" in saved_val_lower or "decline" in saved_val_lower or "prefer not" in saved_val_lower:
+            if "decline" in text_lower or "decline" in val_lower or "prefer not" in text_lower or "prefer not" in val_lower or "undisclosed" in text_lower:
+                return opt['value']
+                
+        # Yes/No mappings
+        if saved_val_lower in ["yes", "true", "1"] and text_lower in ["yes", "y", "true", "agree"]:
+            return opt['value']
+        if saved_val_lower in ["no", "false", "0"] and text_lower in ["no", "n", "false", "disagree"]:
+            return opt['value']
+            
+    return None
 
 def load_profile():
     with open('profile.json', 'r') as f:
         return json.load(f)
+
+def save_gemini_response_to_profile(label_text, value):
+    try:
+        profile = load_profile()
+        if 'custom_keywords' not in profile:
+            profile['custom_keywords'] = {}
+        key = label_text.strip()
+        if key:
+            profile['custom_keywords'][key] = value
+            with open('profile.json', 'w') as f:
+                json.dump(profile, f, indent=2)
+            print(f"    [SAVED TO PROFILE] Added custom keyword mapping: '{key}' -> '{value}'")
+    except Exception as e:
+        print(f"    [ERROR] Failed to save Gemini response to profile: {e}")
 
 def load_jobs():
     with open('jobs_database.json', 'r') as f:
@@ -109,7 +265,7 @@ def autofill_form(page, profile, wait_first=False):
     if wait_first:
         page.wait_for_timeout(3000)
     
-    print(f"Scanning page {page.url} for inputs...")
+    print(f"Scanning page {page.url} for inputs (including iframes)...")
     
     # Common input filling logic using heuristics
     fill_mappings = [
@@ -127,10 +283,10 @@ def autofill_form(page, profile, wait_first=False):
         # Links
         {"selectors": ["input[name*='linkedin' i]", "input[placeholder*='linkedin' i]", "input[id*='linkedin' i]"], "value": personal['linkedin']},
         {"selectors": ["input[name*='github' i]", "input[placeholder*='github' i]", "input[id*='github' i]"], "value": personal['github']},
-        {"selectors": ["input[name*='portfolio' i]", "input[name*='website' i]", "input[placeholder*='portfolio' i]"], "value": personal['portfolio'] or personal['github']},
-        
+        {"selectors": ["input[name*='portfolio' i]", "input[name*='website' i]", "input[placeholder*='portfolio' i]"], "value": personal.get('portfolio') or personal.get('github', '')},
+
         # Location
-        {"selectors": ["input[name*='city' i]", "input[placeholder*='city' i]"], "value": personal['city']},
+        {"selectors": ["input[name*='city' i]", "input[placeholder*='city' i]"], "value": personal.get('city', personal.get('location', ''))},
         {"selectors": ["input[name*='location' i]", "input[placeholder*='location' i]"], "value": personal['location']}
     ]
     
@@ -138,8 +294,8 @@ def autofill_form(page, profile, wait_first=False):
     for mapping in fill_mappings:
         for selector in mapping['selectors']:
             try:
-                elements = page.query_selector_all(selector)
-                for el in elements:
+                elements = query_selector_all_across_frames(page, selector)
+                for el, frame in elements:
                     if el.is_visible() and el.is_enabled():
                         # Read existing value
                         val = el.input_value()
@@ -152,10 +308,14 @@ def autofill_form(page, profile, wait_first=False):
                 
     # Textarea matching (e.g. cover letter or summary)
     try:
-        summary_els = page.query_selector_all("textarea[name*='summary' i], textarea[name*='cover' i], textarea[id*='cover' i]")
-        for el in summary_els:
+        summary_els = query_selector_all_across_frames(page, "textarea[name*='summary' i], textarea[name*='cover' i], textarea[id*='cover' i]")
+        for el, frame in summary_els:
             if el.is_visible() and not el.input_value():
-                cover_letter = f"Dear Hiring Team,\n\nI am writing to express my interest in this position. As a B.Tech CSE (AI) graduate with hands-on experience as an AI Developer Intern at Hrud.ai and a Software Developer Intern at Symbiosys Technologies, I have built SaaS apps, AI-powered systems (like Civic Desk and Career Clarity Hub), and Python automation scripts.\n\nI am proficient in Python, SQL, React, and Supabase. I look forward to contributing my technical skills and problem-solving abilities to your team.\n\nSincerely,\nHarish Varri"
+                full_name = personal.get('full_name', 'I')
+                custom = profile.get('custom_responses', {})
+                ai_summary = custom.get('summary_ai_experience', '')
+                why_join = custom.get('why_join_company', '')
+                cover_letter = f"Dear Hiring Team,\n\nI am writing to express my interest in this position. {ai_summary or f'{full_name} is a motivated software developer with experience in Python, SQL, React, and AI/ML.'}\n\n{why_join or 'I look forward to contributing my technical skills and problem-solving abilities to your team.'}\n\nSincerely,\n{full_name}"
                 el.fill(cover_letter)
                 filled_count += 1
     except Exception:
@@ -163,10 +323,10 @@ def autofill_form(page, profile, wait_first=False):
         
     # File upload (Resume PDF)
     try:
-        file_inputs = page.query_selector_all("input[type='file']")
+        file_inputs = query_selector_all_across_frames(page, "input[type='file']")
         resume_path = personal['resume_path']
         if os.path.exists(resume_path) and file_inputs:
-            for file_in in file_inputs:
+            for file_in, frame in file_inputs:
                 accept_attr = file_in.get_attribute("accept") or ""
                 name_attr = file_in.get_attribute("name") or ""
                 id_attr = file_in.get_attribute("id") or ""
@@ -226,9 +386,40 @@ def update_status_banner(page, status_type, message):
     except Exception as e:
         print(f"Error updating banner: {e}")
 
-def find_saved_response(label_text, custom_responses):
+def find_saved_response(label_text, profile):
     label = label_text.lower()
+    personal = profile.get("personal", {})
+    custom_responses = profile.get("custom_responses", {})
+    custom_keywords = profile.get("custom_keywords", {})
     
+    # 0. Check personal fields first
+    if "linkedin" in label:
+        return personal.get("linkedin")
+    if "github" in label:
+        return personal.get("github")
+    if "email" in label:
+        return personal.get("email")
+    if "phone" in label or "mobile" in label or "phone number" in label or "contact number" in label:
+        return personal.get("phone")
+    if "portfolio" in label or "website" in label or "personal site" in label or "homepage" in label:
+        return personal.get("portfolio") or personal.get("github")
+    if "first name" in label or "given name" in label:
+        return personal.get("first_name")
+    if "last name" in label or "family name" in label or "surname" in label:
+        return personal.get("last_name")
+    if "full name" in label:
+        return personal.get("full_name")
+    if label == "name":
+        return personal.get("full_name")
+    if "name" in label and "first" not in label and "last" not in label and "family" not in label and "given" not in label:
+        return personal.get("full_name")
+        
+    # 0.5. Check user-defined dynamic custom keywords first! (Case-insensitive)
+    for keyword, answer in custom_keywords.items():
+        if keyword.lower() in label:
+            print(f"    [MATCHED CUSTOM KEYWORD] Keyword '{keyword}' matched in label '{label_text[:50]}' -> '{answer}'")
+            return answer
+            
     # 1. US Work authorization / sponsorship
     if "authorized" in label and ("us" in label or "united states" in label or "u.s." in label):
         return custom_responses.get("authorized_us")
@@ -337,7 +528,7 @@ def find_saved_response(label_text, custom_responses):
     if "challenging project" in label or "project you built" in label or "describe a project" in label:
         return custom_responses.get("challenging_project_description")
         
-    # 16. Substring match
+    # 16. Substring match fallback on standard customs
     for key, val in custom_responses.items():
         clean_key = key.replace('_', ' ')
         if clean_key in label or label in clean_key:
@@ -345,11 +536,8 @@ def find_saved_response(label_text, custom_responses):
             
     return None
 
-# Removed Gemini API helper
-
 def fill_custom_fields_with_saved_responses(page, profile, company_name, job_title):
-    custom_responses = profile.get("custom_responses", {})
-    print("Analyzing page for custom/unfilled fields...")
+    print("Analyzing page (including iframes) for custom/unfilled fields...")
     
     # 1. Handle normal text/select inputs
     input_selectors = [
@@ -362,58 +550,120 @@ def fill_custom_fields_with_saved_responses(page, profile, company_name, job_tit
     unfilled_elements = []
     for sel in input_selectors:
         try:
-            elements = page.query_selector_all(sel)
-            for el in elements:
+            elements = query_selector_all_across_frames(page, sel)
+            for el, frame in elements:
                 if el.is_visible() and el.is_enabled():
                     tag_name = el.evaluate("node => node.tagName.toLowerCase()")
                     val = ""
                     if tag_name == "select":
                         val = el.input_value()
                         if not val or val == "0" or val == "":
-                            unfilled_elements.append((el, "dropdown"))
+                            unfilled_elements.append((el, frame, "dropdown"))
                     else:
                         val = el.input_value()
                         if not val or len(val.strip()) == 0:
                             el_type = el.get_attribute("type") or "text"
                             if el_type in ["text", "textarea"] or tag_name == "textarea":
-                                unfilled_elements.append((el, tag_name if tag_name == "textarea" else "text"))
+                                unfilled_elements.append((el, frame, tag_name if tag_name == "textarea" else "text"))
         except Exception:
             pass
             
     if unfilled_elements:
-        print(f"Found {len(unfilled_elements)} unfilled text/select fields.")
-        for idx, (el, el_type) in enumerate(unfilled_elements):
+        print(f"Found {len(unfilled_elements)} unfilled text/select fields across all frames.")
+        for idx, (el, frame, el_type) in enumerate(unfilled_elements):
             try:
-                # Extract context
-                label_text = ""
-                el_id = el.get_attribute("id")
-                el_name = el.get_attribute("name") or ""
-                el_placeholder = el.get_attribute("placeholder") or ""
+                # Extract context in the correct frame using browser-evaluated JavaScript
+                label_text = el.evaluate("""node => {
+                    // 1. Check aria-label
+                    let label = node.getAttribute('aria-label');
+                    if (label && label.trim().length > 2) return label.trim();
+                    
+                    // 2. Check aria-labelledby
+                    let labelledby = node.getAttribute('aria-labelledby');
+                    if (labelledby) {
+                        let target = document.getElementById(labelledby);
+                        if (target && target.innerText && target.innerText.trim().length > 2) {
+                            return target.innerText.trim();
+                        }
+                    }
+                    
+                    // 3. Check explicit label using for attribute
+                    let id = node.getAttribute('id');
+                    if (id) {
+                        let explicitLabel = document.querySelector(`label[for="${id}"]`);
+                        if (explicitLabel && explicitLabel.innerText && explicitLabel.innerText.trim().length > 2) {
+                            return explicitLabel.innerText.trim();
+                        }
+                    }
+                    
+                    // 4. Check if input is nested inside a label
+                    let parentLabel = node.closest('label');
+                    if (parentLabel && parentLabel.innerText && parentLabel.innerText.trim().length > 2) {
+                        return parentLabel.innerText.trim();
+                    }
+                    
+                    // 5. Look for nearby label elements or container text
+                    let parent = node.parentElement;
+                    for (let depth = 0; depth < 4; depth++) {
+                        if (!parent) break;
+                        let lbl = parent.querySelector('label');
+                        if (lbl && lbl.innerText && lbl.innerText.trim().length > 2) {
+                            return lbl.innerText.trim();
+                        }
+                        
+                        let prev = node.previousElementSibling;
+                        while (prev) {
+                            if (prev.tagName.toLowerCase() === 'label' || prev.classList.contains('label') || prev.classList.contains('field-label')) {
+                                if (prev.innerText && prev.innerText.trim().length > 2) {
+                                    return prev.innerText.trim();
+                                }
+                            }
+                            prev = prev.previousElementSibling;
+                        }
+                        parent = parent.parentElement;
+                    }
+                    
+                    // 6. Check placeholder
+                    let placeholder = node.getAttribute('placeholder');
+                    if (placeholder && placeholder.trim().length > 2) return placeholder.trim();
+                    
+                    // 7. Check name/id as a last resort, but only if it's not generic system names
+                    let name = node.getAttribute('name');
+                    if (name && !name.includes('[') && !name.includes('_attributes') && name.trim().length > 2) return name.trim();
+                    
+                    let elId = node.getAttribute('id');
+                    if (elId && !elId.includes('_attributes') && !elId.includes('-') && elId.trim().length > 2) return elId.trim();
+                    
+                    // 8. If parent container has text, try to extract first line
+                    if (node.parentElement) {
+                        let parentText = node.parentElement.innerText || '';
+                        let lines = parentText.split('\\n').map(l => l.trim()).filter(l => l.length > 2);
+                        if (lines.length > 0) {
+                            return lines[0];
+                        }
+                    }
+                    
+                    return '';
+                }""").strip()
                 
-                if el_id:
-                    label_el = page.query_selector(f"label[for='{el_id}']")
-                    if label_el:
-                        label_text = label_el.inner_text().strip()
-                
-                if not label_text:
+                if not label_text or len(label_text) < 3:
+                    el_id = el.get_attribute("id") or ""
+                    el_name = el.get_attribute("name") or ""
+                    el_placeholder = el.get_attribute("placeholder") or ""
                     label_text = el_placeholder or el_name or el_id or "Custom Question"
-                    
-                if len(label_text) < 3:
-                    label_text = el.evaluate("node => node.parentElement ? node.parentElement.innerText : ''").strip().split('\n')[0]
-                    
+                
                 print(f" -> Field [{idx+1}/{len(unfilled_elements)}]: Label='{label_text[:50]}' (Type: {el_type})")
                 
                 # Check for saved custom response first
-                saved_val = find_saved_response(label_text, custom_responses)
+                saved_val = find_saved_response(label_text, profile)
                 
+                # Detect custom combobox dropdowns (e.g. React Select)
+                role_attr = el.get_attribute("role") or ""
+                class_attr = el.get_attribute("class") or ""
+                is_combobox = role_attr == "combobox" or "select__input" in class_attr
+
                 if saved_val is not None:
                     print(f"    [MATCHED USER RESPONSES] Reusing saved response: '{saved_val[:50]}'")
-                    
-                    # Detect custom combobox dropdowns (e.g. React Select)
-                    role_attr = el.get_attribute("role") or ""
-                    class_attr = el.get_attribute("class") or ""
-                    is_combobox = role_attr == "combobox" or "select__input" in class_attr
-                    
                     if el_type == "dropdown":
                         options_data = el.evaluate("""node => {
                             return Array.from(node.options).map(opt => ({
@@ -421,11 +671,8 @@ def fill_custom_fields_with_saved_responses(page, profile, company_name, job_tit
                                 value: opt.value
                             })).filter(opt => opt.value !== "");
                         }""")
-                        matched_val = None
-                        for opt in options_data:
-                            if saved_val.lower() in opt['text'].lower() or opt['text'].lower() in saved_val.lower():
-                                matched_val = opt['value']
-                                break
+                        
+                        matched_val = match_option_value(saved_val, options_data)
                         if matched_val:
                             el.select_option(value=matched_val)
                             print(f"    Selected dropdown option: '{matched_val}'")
@@ -435,61 +682,113 @@ def fill_custom_fields_with_saved_responses(page, profile, company_name, job_tit
                     elif is_combobox:
                         print(f"    Selected option via combobox input: '{saved_val}'")
                         el.click()
-                        page.wait_for_timeout(300)
+                        frame.wait_for_timeout(300)
                         el.fill(saved_val)
-                        page.wait_for_timeout(300)
-                        page.keyboard.press("Enter")
-                        page.wait_for_timeout(300)
+                        frame.wait_for_timeout(300)
+                        el.press("Enter")
+                        frame.wait_for_timeout(300)
                     else:
                         el.fill(saved_val)
                 else:
-                    print(f"    [WARNING] No saved response found for '{label_text[:50]}'. Skipping field.")
+                    # Let's try Gemini AI!
+                    if HAS_GEMINI:
+                        print(f"    [GEMINI AI] Calling Gemini API fallback for field '{label_text[:50]}'")
+                        if el_type == "dropdown":
+                            options_data = el.evaluate("""node => {
+                                return Array.from(node.options).map(opt => ({
+                                    text: opt.text.strip(),
+                                    value: opt.value
+                                })).filter(opt => opt.value !== "");
+                            }""")
+                            options_list = [opt['text'] for opt in options_data]
+                            ai_val = get_gemini_response(label_text, "dropdown", options_list, profile)
+                            if ai_val:
+                                print(f"    [GEMINI AI ANSWER] Selected option: '{ai_val}'")
+                                save_gemini_response_to_profile(label_text, ai_val)
+                                matched_val = match_option_value(ai_val, options_data)
+                                if matched_val:
+                                    el.select_option(value=matched_val)
+                                else:
+                                    if options_data:
+                                        el.select_option(index=1)
+                            else:
+                                if options_data:
+                                    el.select_option(index=1)
+                        elif is_combobox:
+                            ai_val = get_gemini_response(label_text, "text", [], profile)
+                            if ai_val:
+                                print(f"    [GEMINI AI ANSWER] Combobox input: '{ai_val}'")
+                                save_gemini_response_to_profile(label_text, ai_val)
+                                el.click()
+                                frame.wait_for_timeout(300)
+                                el.fill(ai_val)
+                                frame.wait_for_timeout(300)
+                                el.press("Enter")
+                                frame.wait_for_timeout(300)
+                        else:
+                            ai_val = get_gemini_response(label_text, el_type, [], profile)
+                            if ai_val:
+                                print(f"    [GEMINI AI ANSWER] Field filled: '{ai_val[:100]}'")
+                                save_gemini_response_to_profile(label_text, ai_val)
+                                el.fill(ai_val)
+                    else:
+                        print(f"    [WARNING] No saved response found for '{label_text[:50]}' and Gemini is disabled. Skipping field.")
                     
-                page.wait_for_timeout(500)
+                frame.wait_for_timeout(500)
             except Exception as e:
                 print(f"    Error filling field: {e}")
-
+ 
     # 2. Handle Radio Buttons Groups
     radio_groups = {}
     try:
-        radio_elements = page.query_selector_all("input[type='radio']:not([disabled])")
-        for el in radio_elements:
+        radio_elements = query_selector_all_across_frames(page, "input[type='radio']:not([disabled])")
+        for el, frame in radio_elements:
             if el.is_visible() and el.is_enabled():
                 name = el.get_attribute("name")
                 if name:
                     if name not in radio_groups:
                         radio_groups[name] = []
-                    radio_groups[name].append(el)
+                    radio_groups[name].append((el, frame))
     except Exception:
         pass
- 
-    for name, els in radio_groups.items():
+  
+    for name, els_info in radio_groups.items():
         try:
             # Check if any radio in this group is checked
             any_checked = False
-            for el in els:
+            for el, frame in els_info:
                 if el.evaluate("node => node.checked"):
                     any_checked = True
                     break
             if any_checked:
                 continue # Skip if already answered
                 
-            first_el = els[0]
-            parent_text = first_el.evaluate("""node => {
+            first_el, frame = els_info[0]
+            question_text = first_el.evaluate("""node => {
+                let parent = node.closest('.field, .form-group, .question, fieldset, tr, li');
+                if (parent) {
+                    let legend = parent.querySelector('legend');
+                    if (legend && legend.innerText.trim()) return legend.innerText.trim();
+                    let label = parent.querySelector('label, .label, .field-label');
+                    if (label && label.innerText.trim()) return label.innerText.trim();
+                }
                 let p = node.parentElement;
                 while (p && p.innerText.trim().length < 10) {
                     p = p.parentElement;
                 }
-                return p ? p.innerText : '';
+                return p ? p.innerText.trim() : '';
             }""").strip()
-            question_text = parent_text.split('\n')[0].strip()
-            
+            if '\n' in question_text:
+                lines = [l.strip() for l in question_text.split('\n') if l.strip()]
+                if lines:
+                    question_text = lines[0]
+                    
             options = []
-            for idx, el in enumerate(els):
+            for idx, (el, frame) in enumerate(els_info):
                 el_id = el.get_attribute("id")
                 opt_text = ""
                 if el_id:
-                    label_el = page.query_selector(f"label[for='{el_id}']")
+                    label_el = frame.query_selector(f"label[for='{el_id}']")
                     if label_el:
                         opt_text = label_el.inner_text().strip()
                 if not opt_text:
@@ -501,7 +800,7 @@ def fill_custom_fields_with_saved_responses(page, profile, company_name, job_tit
             print(f" -> Radio group '{name}': Question='{question_text[:50]}'")
             
             # Check for saved custom response first
-            saved_val = find_saved_response(question_text, custom_responses)
+            saved_val = find_saved_response(question_text, profile)
             
             if saved_val is not None:
                 print(f"    [MATCHED USER RESPONSES] Reusing saved response for radio: '{saved_val[:50]}'")
@@ -515,51 +814,88 @@ def fill_custom_fields_with_saved_responses(page, profile, company_name, job_tit
                 if not selected and options:
                     options[0][0].click()
             else:
-                print(f"    [WARNING] No saved response for radio '{question_text[:50]}'. Skipping radio group.")
+                if HAS_GEMINI:
+                    print(f"    [GEMINI AI] Calling Gemini API fallback for radio group '{question_text[:50]}'")
+                    options_list = [opt_txt for el, opt_txt in options]
+                    ai_val = get_gemini_response(question_text, "dropdown", options_list, profile)
+                    if ai_val:
+                        print(f"    [GEMINI AI ANSWER] Radio option: '{ai_val}'")
+                        save_gemini_response_to_profile(question_text, ai_val)
+                        selected = False
+                        for radio_el, opt_txt in options:
+                            if ai_val.lower() in opt_txt.lower() or opt_txt.lower() in ai_val.lower():
+                                radio_el.click()
+                                selected = True
+                                break
+                        if not selected and options:
+                            options[0][0].click()
+                    else:
+                        if options:
+                            options[0][0].click()
+                else:
+                    print(f"    [WARNING] No saved response for radio '{question_text[:50]}' and Gemini is disabled. Skipping radio group.")
                 
-            page.wait_for_timeout(500)
+            frame.wait_for_timeout(500)
         except Exception as e:
             print(f"    Error processing radio group {name}: {e}")
-
+ 
     # 3. Handle Individual Checkboxes
     checkbox_elements = []
     try:
-        checkboxes = page.query_selector_all("input[type='checkbox']:not([disabled])")
-        for el in checkboxes:
+        checkboxes = query_selector_all_across_frames(page, "input[type='checkbox']:not([disabled])")
+        for el, frame in checkboxes:
             if el.is_visible() and el.is_enabled() and not el.evaluate("node => node.checked"):
-                checkbox_elements.append(el)
+                checkbox_elements.append((el, frame))
     except Exception:
         pass
         
-    for el in checkbox_elements:
+    for el, frame in checkbox_elements:
         try:
-            el_id = el.get_attribute("id")
-            label_text = ""
-            if el_id:
-                label_el = page.query_selector(f"label[for='{el_id}']")
-                if label_el:
-                    label_text = label_el.inner_text().strip()
-            if not label_text:
-                label_text = el.evaluate("node => node.parentElement ? node.parentElement.innerText : ''").strip()
+            label_text = el.evaluate("""node => {
+                let id = node.getAttribute('id');
+                if (id) {
+                    let lbl = document.querySelector(`label[for="${id}"]`);
+                    if (lbl && lbl.innerText.trim()) return lbl.innerText.trim();
+                }
+                let parentLabel = node.closest('label');
+                if (parentLabel && parentLabel.innerText.trim()) return parentLabel.innerText.trim();
+                
+                if (node.parentElement) {
+                    return node.parentElement.innerText.trim();
+                }
+                return '';
+            }""").strip()
+            
             if not label_text:
                 label_text = el.get_attribute("name") or "Checkbox"
                 
             print(f" -> Checkbox: Label='{label_text[:50]}'")
             
             # Check for saved custom response first
-            saved_val = find_saved_response(label_text, custom_responses)
+            saved_val = find_saved_response(label_text, profile)
             
             if saved_val is not None:
                 print(f"    [MATCHED USER RESPONSES] Reusing saved response for checkbox: '{saved_val}'")
-                if saved_val.lower() in ["yes", "check", "true", "1"]:
+                if saved_val.lower() in ["yes", "check", "true", "1", "agree"]:
                     el.click()
                     print("    Checked the box.")
                 else:
                     print("    Left the box unchecked.")
             else:
-                print(f"    [WARNING] No saved response for checkbox '{label_text[:50]}'. Skipping checkbox.")
+                if HAS_GEMINI:
+                    print(f"    [GEMINI AI] Calling Gemini API fallback for checkbox '{label_text[:50]}'")
+                    ai_val = get_gemini_response(label_text, "checkbox", [], profile)
+                    if ai_val:
+                        save_gemini_response_to_profile(label_text, ai_val)
+                    if ai_val and ai_val.lower() in ["yes", "true", "agree"]:
+                        el.click()
+                        print("    Checked the box.")
+                    else:
+                        print("    Left the box unchecked.")
+                else:
+                    print(f"    [WARNING] No saved response for checkbox '{label_text[:50]}' and Gemini is disabled. Skipping checkbox.")
                 
-            page.wait_for_timeout(500)
+            frame.wait_for_timeout(500)
         except Exception as e:
             print(f"    Error processing checkbox: {e}")
 
@@ -577,15 +913,18 @@ def auto_submit_form(page):
     
     page.wait_for_timeout(2000) # Small pause to let user see filled data
     for selector in submit_selectors:
-        try:
-            btn = page.locator(selector).first
-            if btn.is_visible() and btn.is_enabled():
-                print(f"Auto-submitting: Clicking button matching '{selector}'")
-                btn.click()
-                page.wait_for_timeout(3000) # Wait for page reaction
-                return True
-        except Exception:
-            pass
+        for frame in page.frames:
+            try:
+                if frame.is_detached():
+                    continue
+                btn = frame.locator(selector).first
+                if btn.is_visible() and btn.is_enabled():
+                    print(f"Auto-submitting: Clicking button matching '{selector}' in frame {frame.url}")
+                    btn.click()
+                    page.wait_for_timeout(3000) # Wait for page reaction
+                    return True
+            except Exception:
+                pass
     return False
 
 def verify_submission_success(page):

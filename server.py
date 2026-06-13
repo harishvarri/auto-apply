@@ -76,6 +76,9 @@ class JobApplierHandler(http.server.SimpleHTTPRequestHandler):
                         response_key = key[7:]  # remove 'custom_'
                         profile['custom_responses'][response_key] = val
                 
+                # Save custom keywords dict
+                profile['custom_keywords'] = data.get('custom_keywords', profile.get('custom_keywords', {}))
+                
                 with open('profile.json', 'w') as f:
                     json.dump(profile, f, indent=2)
                     

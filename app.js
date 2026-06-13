@@ -20,6 +20,22 @@ const statAppliedEl = document.getElementById('statApplied');
 const statPendingEl = document.getElementById('statPending');
 const statMatchEl = document.getElementById('statMatch');
 
+// India DOM Elements
+const indiaJobsListEl = document.getElementById('indiaJobsList');
+const indiaDetailsPanelEl = document.getElementById('indiaDetailsPanel');
+const indiaSearchInput = document.getElementById('indiaSearchInput');
+const indiaStatusFilter = document.getElementById('indiaStatusFilter');
+const indiaSortControl = document.getElementById('indiaSortControl');
+const indiaBatchApplyBtn = document.getElementById('indiaBatchApplyBtn');
+
+// India Stats Elements
+const indiaStatTotalEl = document.getElementById('indiaStatTotal');
+const indiaStatAppliedEl = document.getElementById('indiaStatApplied');
+const indiaStatPendingEl = document.getElementById('indiaStatPending');
+const indiaStatMatchEl = document.getElementById('indiaStatMatch');
+
+let selectedIndiaJobId = null;
+
 // Navigation Tabs
 const navItems = document.querySelectorAll('.nav-item');
 const tabs = document.querySelectorAll('.tab-content');
@@ -48,7 +64,7 @@ function showToast(message, isError = false) {
 // Check Server Status
 async function checkServerStatus() {
     try {
-        const response = await fetch('/jobs_database.json');
+        const response = await fetch('/jobs_database.json?t=' + Date.now());
         if (response.ok) {
             document.querySelector('.status-dot').classList.add('online');
             document.getElementById('serverStatusText').innerText = "System Operational";
@@ -70,11 +86,12 @@ async function loadData() {
         }
         
         // Load Jobs
-        const jobsRes = await fetch('/jobs_database.json');
+        const jobsRes = await fetch('/jobs_database.json?t=' + Date.now());
         if (jobsRes.ok) {
             jobs = await jobsRes.json();
             renderStats();
             filterAndRenderJobs();
+            filterAndRenderIndiaJobs();
         }
     } catch (e) {
         showToast("Error loading databases. Please run server.py", true);
@@ -103,32 +120,134 @@ function populateProfileForm() {
             input.value = custom[key];
         }
     }
+    
+    // Render custom keywords
+    renderCustomKeywordsTable();
 }
+
+// Render Custom Keywords Table
+function renderCustomKeywordsTable() {
+    const tableBody = document.getElementById('keywordsTableBody');
+    if (!tableBody) return;
+    tableBody.innerHTML = '';
+    
+    const customKeywords = (userProfile && userProfile.custom_keywords) || {};
+    const keys = Object.keys(customKeywords);
+    
+    if (keys.length === 0) {
+        tableBody.innerHTML = `
+            <tr>
+                <td colspan="3" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">
+                    No custom keyword mappings configured. Add one below!
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    keys.forEach(keyword => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="font-weight: 600; font-family: monospace;">${escapeHtml(keyword)}</td>
+            <td style="color: var(--text-secondary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(customKeywords[keyword])}</td>
+            <td style="text-align: center;">
+                <button type="button" class="btn-delete-keyword" onclick="deleteKeywordMapping('${escapeSingleQuote(keyword)}')">Delete</button>
+            </td>
+        `;
+        tableBody.appendChild(tr);
+    });
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function escapeSingleQuote(text) {
+    if (!text) return '';
+    return text.replace(/'/g, "\\'");
+}
+
+function safeUrl(url) {
+    if (!url) return '#';
+    const trimmed = url.trim();
+    if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) return trimmed;
+    return '#';
+}
+
+// Global delete keyword mapping callback
+window.deleteKeywordMapping = function(keyword) {
+    if (userProfile && userProfile.custom_keywords && userProfile.custom_keywords[keyword]) {
+        delete userProfile.custom_keywords[keyword];
+        renderCustomKeywordsTable();
+        showToast("Keyword mapping removed! Click Save Profile Settings to save.");
+    }
+};
 
 // Render Stats Card
 function renderStats() {
     if (!jobs.length) return;
     
-    const total = jobs.length;
-    const applied = jobs.filter(j => j.status === 'Applied').length;
-    const pending = jobs.filter(j => j.status === 'Pending' || !j.status).length;
-    
-    const sumMatch = jobs.reduce((sum, j) => sum + (j.match_rate || 70), 0);
-    const avgMatch = Math.round(sumMatch / total);
+    // Global stats: jobs that are NOT India jobs
+    const globalJobs = jobs.filter(j => !isIndiaJob(j));
+    const total = globalJobs.length;
+    const applied = globalJobs.filter(j => j.status === 'Applied').length;
+    const pending = globalJobs.filter(j => j.status === 'Pending' || !j.status).length;
+    const sumMatch = globalJobs.reduce((sum, j) => sum + (j.match_rate || 70), 0);
+    const avgMatch = total ? Math.round(sumMatch / total) : 0;
     
     statTotalEl.innerText = total;
     statAppliedEl.innerText = applied;
     statPendingEl.innerText = pending;
     statMatchEl.innerText = `${avgMatch}%`;
+
+    // India stats: jobs that ARE India jobs
+    const indiaJobs = jobs.filter(j => isIndiaJob(j));
+    const indiaTotal = indiaJobs.length;
+    const indiaApplied = indiaJobs.filter(j => j.status === 'Applied').length;
+    const indiaPending = indiaJobs.filter(j => j.status === 'Pending' || !j.status).length;
+    const indiaSumMatch = indiaJobs.reduce((sum, j) => sum + (j.match_rate || 70), 0);
+    const indiaAvgMatch = indiaTotal ? Math.round(indiaSumMatch / indiaTotal) : 0;
+
+    indiaStatTotalEl.innerText = indiaTotal;
+    indiaStatAppliedEl.innerText = indiaApplied;
+    indiaStatPendingEl.innerText = indiaPending;
+    indiaStatMatchEl.innerText = `${indiaAvgMatch}%`;
 }
 
-// Filter and Render Jobs List
+// Helper to identify India-based jobs
+function isIndiaJob(job) {
+    if (!job || !job.location) return false;
+    const loc = job.location.toLowerCase();
+    // Exclude US locations like Indianapolis or Indiana that contain "india"
+    const hasIndiaWord = loc.includes('india') && !loc.includes('indianapolis') && !loc.includes('indiana');
+    return hasIndiaWord || 
+           loc.includes('bengaluru') || 
+           loc.includes('bangalore') || 
+           loc.includes('hyderabad') || 
+           loc.includes('pune') || 
+           loc.includes('mumbai') || 
+           loc.includes('noida') || 
+           loc.includes('gurugram') || 
+           loc.includes('gurgaon') || 
+           loc.includes('chennai');
+}
+
+// Filter and Render Jobs List (Global/Non-India Jobs)
 function filterAndRenderJobs() {
     const searchTerm = searchInput.value.toLowerCase();
     const selectedStatus = statusFilter.value;
     const sortBy = sortControl.value;
     
     let filtered = jobs.filter(job => {
+        // Exclude India jobs from global tab
+        if (isIndiaJob(job)) return false;
+
         const matchesSearch = 
             job.title.toLowerCase().includes(searchTerm) ||
             job.company.toLowerCase().includes(searchTerm) ||
@@ -184,6 +303,154 @@ function filterAndRenderJobs() {
     });
 }
 
+// Filter and Render India Jobs List
+function filterAndRenderIndiaJobs() {
+    const searchTerm = indiaSearchInput.value.toLowerCase();
+    const selectedStatus = indiaStatusFilter.value;
+    const sortBy = indiaSortControl.value;
+    
+    let filtered = jobs.filter(job => {
+        // Exclusively show India jobs in the India tab
+        if (!isIndiaJob(job)) return false;
+
+        const matchesSearch = 
+            job.title.toLowerCase().includes(searchTerm) ||
+            job.company.toLowerCase().includes(searchTerm) ||
+            job.skills_required.some(s => s.toLowerCase().includes(searchTerm));
+            
+        const matchesStatus = 
+            selectedStatus === 'all' || 
+            job.status === selectedStatus ||
+            (selectedStatus === 'Pending' && !job.status);
+            
+        return matchesSearch && matchesStatus;
+    });
+    
+    // Sort
+    if (sortBy === 'match_desc') {
+        filtered.sort((a, b) => (b.match_rate || 70) - (a.match_rate || 70));
+    } else if (sortBy === 'title_asc') {
+        filtered.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    
+    indiaJobsListEl.innerHTML = '';
+    
+    if (filtered.length === 0) {
+        indiaJobsListEl.innerHTML = `
+            <div style="padding: 2rem; text-align: center; color: var(--text-muted);">
+                No India-based jobs found matching filters.
+            </div>
+        `;
+        return;
+    }
+    
+    filtered.forEach(job => {
+        const item = document.createElement('div');
+        item.className = `job-item ${selectedIndiaJobId === job.id ? 'selected' : ''}`;
+        item.addEventListener('click', () => selectIndiaJob(job.id));
+        
+        const isApplied = job.status === 'Applied';
+        const badgeClass = isApplied ? 'applied' : 'pending';
+        const badgeText = isApplied ? 'Applied' : 'Pending';
+        
+        item.innerHTML = `
+            <div class="job-meta-main">
+                <h3>${job.title}</h3>
+                <p>${job.company} • ${job.location}</p>
+            </div>
+            <div class="job-meta-side">
+                <span class="badge ${badgeClass}">${badgeText}</span>
+                <span class="match-badge">${job.match_rate || 70}% Match</span>
+            </div>
+        `;
+        
+        indiaJobsListEl.appendChild(item);
+    });
+}
+
+// Select India Job and Render Details
+function selectIndiaJob(jobId) {
+    selectedIndiaJobId = jobId;
+    
+    // Highlight in list
+    document.querySelectorAll('#indiaJobsList .job-item').forEach(el => el.classList.remove('selected'));
+    const job = jobs.find(j => j.id === jobId);
+    
+    if (!job) return;
+    
+    // Render Detail Pane
+    const skillsList = userProfile ? userProfile.skills : {};
+    const userSkillsFlattened = Object.values(skillsList).flat().map(s => s.toLowerCase());
+    
+    const tagsHtml = job.skills_required.map(skill => {
+        const isMatched = userSkillsFlattened.includes(skill.toLowerCase());
+        const tagClass = isMatched ? 'tag match' : 'tag';
+        const checkIcon = isMatched ? '✓ ' : '';
+        return `<span class="${tagClass}">${checkIcon}${skill}</span>`;
+    }).join(' ');
+    
+    const applyButtonText = job.status === 'Applied' ? 'Apply Again (Autofill)' : '🚀 Auto-Fill in Browser';
+    const applyButtonClass = job.status === 'Applied' ? 'btn btn-secondary' : 'btn btn-primary';
+    
+    indiaDetailsPanelEl.innerHTML = `
+        <div class="detail-header">
+            <h2>${escapeHtml(job.title)}</h2>
+            <div class="company">${escapeHtml(job.company)}</div>
+            <div class="meta-row">
+                <span>📍 ${escapeHtml(job.location)}</span>
+                <span>📅 Posted: ${escapeHtml(job.date_posted || 'June 2026')}</span>
+                <span>ℹ️ Source: ${escapeHtml(job.source || 'Portal')}</span>
+            </div>
+        </div>
+
+        <div class="detail-body">
+            <div class="detail-section">
+                <h4>Match Quality Analysis</h4>
+                <div style="font-size: 1.5rem; font-weight: 800; color: var(--accent-cyan); margin-bottom: 0.25rem;">
+                    ${parseInt(job.match_rate) || 70}% Match
+                </div>
+                <p style="font-size: 0.85rem;">Based on your B.Tech CSE (AI) credentials, internships, and skill matching.</p>
+            </div>
+
+            <div class="detail-section">
+                <h4>Required Skills</h4>
+                <div class="skills-tags">
+                    ${tagsHtml}
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <h4>Job Description Summary</h4>
+                <p>${escapeHtml(job.description)}</p>
+            </div>
+
+            <div class="actions-section">
+                <button id="indiaApplyBtn" class="${applyButtonClass}" style="width: 100%; font-size: 1rem; padding: 0.9rem;">
+                    ${applyButtonText}
+                </button>
+                <a href="${safeUrl(job.url)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="width: 100%;">
+                    🌐 Open Direct Job Link
+                </a>
+                <button id="indiaMarkAppliedBtn" class="btn btn-success" style="width: 100%;">
+                    ✅ Toggle Applied Status
+                </button>
+            </div>
+        </div>
+    `;
+    
+    // Add Click Listeners
+    document.getElementById('indiaApplyBtn').addEventListener('click', () => runAutofill(job.id));
+    document.getElementById('indiaMarkAppliedBtn').addEventListener('click', () => toggleJobAppliedStatus(job.id));
+    
+    // Highlight this job specifically
+    const items = indiaJobsListEl.querySelectorAll('.job-item');
+    jobs.filter(j => isIndiaJob(j)).forEach((j, idx) => {
+        if (j.id === jobId && items[idx]) {
+            items[idx].classList.add('selected');
+        }
+    });
+}
+
 // Select Job and Render Details
 function selectJob(jobId) {
     selectedJobId = jobId;
@@ -212,41 +479,41 @@ function selectJob(jobId) {
     
     detailsPanelEl.innerHTML = `
         <div class="detail-header">
-            <h2>${job.title}</h2>
-            <div class="company">${job.company}</div>
+            <h2>${escapeHtml(job.title)}</h2>
+            <div class="company">${escapeHtml(job.company)}</div>
             <div class="meta-row">
-                <span>📍 ${job.location}</span>
-                <span>📅 Posted: ${job.date_posted || 'June 2026'}</span>
-                <span>ℹ️ Source: ${job.source || 'Portal'}</span>
+                <span>📍 ${escapeHtml(job.location)}</span>
+                <span>📅 Posted: ${escapeHtml(job.date_posted || 'June 2026')}</span>
+                <span>ℹ️ Source: ${escapeHtml(job.source || 'Portal')}</span>
             </div>
         </div>
-        
+
         <div class="detail-body">
             <div class="detail-section">
                 <h4>Match Quality Analysis</h4>
                 <div style="font-size: 1.5rem; font-weight: 800; color: var(--accent-cyan); margin-bottom: 0.25rem;">
-                    ${job.match_rate || 70}% Match
+                    ${parseInt(job.match_rate) || 70}% Match
                 </div>
                 <p style="font-size: 0.85rem;">Based on your B.Tech CSE (AI) credentials, internships, and skill matching.</p>
             </div>
-            
+
             <div class="detail-section">
                 <h4>Required Skills</h4>
                 <div class="skills-tags">
                     ${tagsHtml}
                 </div>
             </div>
-            
+
             <div class="detail-section">
                 <h4>Job Description Summary</h4>
-                <p>${job.description}</p>
+                <p>${escapeHtml(job.description)}</p>
             </div>
-            
+
             <div class="actions-section">
                 <button id="applyBtn" class="${applyButtonClass}" style="width: 100%; font-size: 1rem; padding: 0.9rem;">
                     ${applyButtonText}
                 </button>
-                <a href="${job.url}" target="_blank" class="btn btn-secondary" style="width: 100%;">
+                <a href="${safeUrl(job.url)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="width: 100%;">
                     🌐 Open Direct Job Link
                 </a>
                 <button id="markAppliedBtn" class="btn btn-success" style="width: 100%;">
@@ -282,6 +549,7 @@ async function runAutofill(jobId) {
             setTimeout(async () => {
                 await loadData();
                 if (selectedJobId) selectJob(selectedJobId);
+                if (selectedIndiaJobId) selectIndiaJob(selectedIndiaJobId);
             }, 10000); // refresh after 10s
         } else {
             showToast("Failed to launch autofill.", true);
@@ -298,15 +566,14 @@ function toggleJobAppliedStatus(jobId) {
     
     job.status = job.status === 'Applied' ? 'Pending' : 'Applied';
     
-    // In a real application, we would write back to file. We can update memory and save.
-    // We can save by calling save profile or save jobs. Since we don't have a direct save-jobs endpoint,
-    // we can implement save-jobs in server or just keep local state. But wait, we can also use our Playwright script
-    // which updates it, or we can just send it. Let's make an API call to save jobs if we want.
-    // Actually, we can update the jobs in memory and show stats.
     renderStats();
     filterAndRenderJobs();
+    filterAndRenderIndiaJobs();
     if (selectedJobId === jobId) {
         selectJob(jobId);
+    }
+    if (selectedIndiaJobId === jobId) {
+        selectIndiaJob(jobId);
     }
     showToast(`Status updated to ${job.status}`);
 }
@@ -348,6 +615,9 @@ profileForm.addEventListener('submit', async (e) => {
     const data = {};
     formData.forEach((value, key) => data[key] = value);
     
+    // Add custom keywords dictionary
+    data.custom_keywords = (userProfile && userProfile.custom_keywords) || {};
+    
     try {
         const res = await fetch('/api/save-profile', {
             method: 'POST',
@@ -364,6 +634,35 @@ profileForm.addEventListener('submit', async (e) => {
     } catch (e) {
         showToast("Error saving profile details.", true);
     }
+});
+
+// Add Keyword Mapping Click Listener
+document.getElementById('addKeywordBtn').addEventListener('click', () => {
+    const keywordInput = document.getElementById('newKeywordInput');
+    const answerInput = document.getElementById('newAnswerInput');
+    
+    const keyword = keywordInput.value.trim();
+    const answer = answerInput.value.trim();
+    
+    if (!keyword || !answer) {
+        showToast("Please enter both keyword and answer.", true);
+        return;
+    }
+    
+    if (!userProfile) {
+        userProfile = { personal: {}, custom_responses: {}, custom_keywords: {} };
+    }
+    if (!userProfile.custom_keywords) {
+        userProfile.custom_keywords = {};
+    }
+    
+    userProfile.custom_keywords[keyword] = answer;
+    
+    keywordInput.value = '';
+    answerInput.value = '';
+    
+    renderCustomKeywordsTable();
+    showToast("Keyword mapping added! Click Save Profile Settings to save.");
 });
 
 // Batch Apply Trigger
@@ -428,6 +727,68 @@ batchApplyBtn.addEventListener('click', async () => {
     }
 });
 
+// India Batch Apply Trigger
+indiaBatchApplyBtn.addEventListener('click', async () => {
+    let pendingJobs = jobs.filter(j => isIndiaJob(j) && (j.status === 'Pending' || !j.status));
+    pendingJobs.sort((a, b) => (b.match_rate || 70) - (a.match_rate || 70));
+    
+    if (pendingJobs.length === 0) {
+        showToast("No pending India jobs found to apply!", true);
+        return;
+    }
+    
+    const selectedJobs = pendingJobs.slice(0, 10);
+    const jobIds = selectedJobs.map(j => j.id);
+    
+    showToast(`Launching batch apply for ${selectedJobs.length} India jobs in browser!`);
+    
+    indiaBatchApplyBtn.disabled = true;
+    indiaBatchApplyBtn.innerText = "🚀 Applying Batch...";
+    
+    try {
+        const res = await fetch('/api/apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ job_ids: jobIds })
+        });
+        
+        if (res.ok) {
+            showToast("Batch launched! Watch the automation browser tabs process.");
+            
+            let pollCount = 0;
+            const maxPolls = 120; // 6 minutes max safety limit
+            
+            const pollInterval = setInterval(async () => {
+                pollCount++;
+                await loadData();
+                
+                // Check if all batch jobs are processed
+                const batchJobs = jobs.filter(j => jobIds.includes(j.id));
+                const allProcessed = batchJobs.every(j => j.status && j.status !== 'Pending');
+                
+                if (allProcessed || pollCount >= maxPolls) {
+                    clearInterval(pollInterval);
+                    indiaBatchApplyBtn.disabled = false;
+                    indiaBatchApplyBtn.innerText = "🚀 Apply Batch (Top 10)";
+                    
+                    const appliedCount = batchJobs.filter(j => j.status === 'Applied').length;
+                    const reviewCount = batchJobs.filter(j => j.status === 'Review Required').length;
+                    
+                    showToast(`India Batch Apply finished! Successful: ${appliedCount}, Review needed: ${reviewCount}`);
+                }
+            }, 3000);
+        } else {
+            showToast("Failed to launch batch apply.", true);
+            indiaBatchApplyBtn.disabled = false;
+            indiaBatchApplyBtn.innerText = "🚀 Apply Batch (Top 10)";
+        }
+    } catch (e) {
+        showToast("Error connecting to automation backend.", true);
+        indiaBatchApplyBtn.disabled = false;
+        indiaBatchApplyBtn.innerText = "🚀 Apply Batch (Top 10)";
+    }
+});
+
 // Init
 window.addEventListener('DOMContentLoaded', () => {
     checkServerStatus();
@@ -437,4 +798,9 @@ window.addEventListener('DOMContentLoaded', () => {
     searchInput.addEventListener('input', filterAndRenderJobs);
     statusFilter.addEventListener('change', filterAndRenderJobs);
     sortControl.addEventListener('change', filterAndRenderJobs);
+    
+    // Add Event Listeners for India Filters
+    indiaSearchInput.addEventListener('input', filterAndRenderIndiaJobs);
+    indiaStatusFilter.addEventListener('change', filterAndRenderIndiaJobs);
+    indiaSortControl.addEventListener('change', filterAndRenderIndiaJobs);
 });

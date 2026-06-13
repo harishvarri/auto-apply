@@ -29,7 +29,8 @@
             </div>
             
             <nav class="nav-menu">
-                <button class="nav-item active" data-tab="jobs">💼 Active Jobs</button>
+                <button class="nav-item active" data-tab="jobs">💼 Global Jobs</button>
+                <button class="nav-item" data-tab="india-jobs">🇮🇳 India Jobs</button>
                 <button class="nav-item" data-tab="profile">👤 Resume Profile</button>
             </nav>
             
@@ -128,6 +129,82 @@
                 </div>
             </div>
 
+            <!-- India Jobs Tab -->
+            <div id="india-jobsTab" class="tab-content">
+                <!-- Stats Section -->
+                <section class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">🇮🇳</div>
+                        <div class="stat-details">
+                            <span id="indiaStatTotal">0</span>
+                            <p>India Opportunities</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon green">✅</div>
+                        <div class="stat-details">
+                            <span id="indiaStatApplied">0</span>
+                            <p>Applied Jobs</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon orange">⏳</div>
+                        <div class="stat-details">
+                            <span id="indiaStatPending">0</span>
+                            <p>Pending Applications</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon blue">⚡</div>
+                        <div class="stat-details">
+                            <span id="indiaStatMatch">0%</span>
+                            <p>Avg Match Quality</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Search & Filters -->
+                <section class="filter-bar">
+                    <div class="search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="indiaSearchInput" placeholder="Search by job title, company, or skills...">
+                    </div>
+                    <div class="filter-controls">
+                        <select id="indiaStatusFilter">
+                            <option value="all">All Statuses</option>
+                            <option value="Pending">Pending</option>
+                            <option value="Applied">Applied</option>
+                        </select>
+                        <select id="indiaSortControl">
+                            <option value="match_desc">Highest Match</option>
+                            <option value="title_asc">Title A-Z</option>
+                        </select>
+                    </div>
+                </section>
+
+                <!-- Two-Column Explorer Layout -->
+                <div class="explorer-grid">
+                    <!-- Left Column: Jobs List -->
+                    <div class="jobs-list-container">
+                        <div style="padding: 1rem; border-bottom: 1px solid var(--glass-border); display: flex; gap: 0.75rem; background: rgba(255, 255, 255, 0.01);">
+                            <button id="indiaBatchApplyBtn" class="btn btn-primary" style="flex-grow: 1; padding: 0.65rem; font-size: 0.85rem; background: linear-gradient(135deg, var(--primary), var(--accent-cyan)); box-shadow: 0 4px 15px rgba(6, 182, 212, 0.2); border: 1px solid var(--accent-cyan);">🚀 Apply Batch (Top 10)</button>
+                        </div>
+                        <div id="indiaJobsList" class="jobs-list">
+                            <!-- Dynamically Loaded -->
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Detail Pane -->
+                    <div class="details-panel" id="indiaDetailsPanel">
+                        <div class="empty-state">
+                            <div class="empty-icon">🇮🇳</div>
+                            <h3>No India Job Selected</h3>
+                            <p>Select a job from the list to view match analysis, requirements, and auto-apply.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Profile Tab -->
             <div id="profileTab" class="tab-content">
                 <div class="profile-editor-container">
@@ -137,9 +214,9 @@
                     </div>
                     
                     <form id="profileForm" class="profile-form">
-                        <!-- Fields will be dynamically loaded from profile.json -->
+                        <!-- Personal & Contact Information -->
                         <div class="form-section">
-                            <h3>Personal Information</h3>
+                            <h3>👤 Personal & Contact Information</h3>
                             <div class="form-grid">
                                 <div class="form-group">
                                     <label>Full Name</label>
@@ -172,87 +249,41 @@
                             </div>
                         </div>
                         
-                        <div class="form-section" style="margin-top: 2rem; border-top: 1px solid var(--glass-border); padding-top: 1.5rem;">
-                            <h3>Common Custom Questions (ATS Autofill)</h3>
-                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1.5rem;">Answer these once, and the bot will reuse your exact answers to automatically apply without dynamic AI generation.</p>
+                        <!-- Work Authorization & Preferences -->
+                        <div class="form-section">
+                            <h3>🛂 Work Authorization & Preferences</h3>
                             <div class="form-grid">
                                 <div class="form-group">
                                     <label>Authorized to work in US?</label>
-                                    <select name="custom_authorized_us" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_authorized_us">
                                         <option value="Yes">Yes</option>
                                         <option value="No">No</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
                                     <label>Require US sponsorship?</label>
-                                    <select name="custom_sponsorship_us" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_sponsorship_us">
                                         <option value="Yes">Yes</option>
                                         <option value="No">No</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
                                     <label>Authorized to work in India?</label>
-                                    <select name="custom_authorized_in" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_authorized_in">
                                         <option value="Yes">Yes</option>
                                         <option value="No">No</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
                                     <label>Require India sponsorship?</label>
-                                    <select name="custom_sponsorship_in" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_sponsorship_in">
                                         <option value="Yes">Yes</option>
                                         <option value="No">No</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
-                                    <label>Notice Period</label>
-                                    <input type="text" name="custom_notice_period" placeholder="Immediate (0 days)">
-                                </div>
-                                <div class="form-group">
-                                    <label>Expected Salary / CTC</label>
-                                    <input type="text" name="custom_expected_salary" placeholder="As per company standards">
-                                </div>
-                                <div class="form-group">
-                                    <label>Gender Identity</label>
-                                    <select name="custom_gender" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
-                                        <option value="Male">Male</option>
-                                        <option value="Female">Female</option>
-                                        <option value="Decline to Self-Identify">Decline to Self-Identify</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>Race / Ethnicity</label>
-                                    <select name="custom_race_ethnicity" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
-                                        <option value="Asian">Asian</option>
-                                        <option value="Decline to Self-Identify">Decline to Self-Identify</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>Veteran Status</label>
-                                    <select name="custom_veteran_status" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
-                                        <option value="I am not a protected veteran">I am not a protected veteran</option>
-                                        <option value="Decline to Self-Identify">Decline to Self-Identify</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>Disability Status</label>
-                                    <select name="custom_disability_status" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
-                                        <option value="No, I do not have a disability">No, I do not have a disability</option>
-                                        <option value="Yes, I have a disability">Yes, I have a disability</option>
-                                        <option value="Decline to Self-Identify">Decline to Self-Identify</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>Preferred Pronouns</label>
-                                    <input type="text" name="custom_preferred_pronouns" placeholder="He/Him">
-                                </div>
-                                <div class="form-group">
-                                    <label>How did you hear about us?</label>
-                                    <input type="text" name="custom_hear_about_us" placeholder="LinkedIn">
-                                </div>
-                                <div class="form-group">
                                     <label>Do you have a CS/IT degree?</label>
-                                    <select name="custom_has_cs_degree" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_has_cs_degree">
                                         <option value="Yes">Yes</option>
                                         <option value="No">No</option>
                                     </select>
@@ -263,52 +294,71 @@
                                 </div>
                                 <div class="form-group">
                                     <label>Willing to relocate?</label>
-                                    <select name="custom_willing_to_relocate" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_willing_to_relocate">
                                         <option value="Yes">Yes</option>
                                         <option value="No">No</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
                                     <label>Work Mode Preference</label>
-                                    <select name="custom_work_mode_preference" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_work_mode_preference">
                                         <option value="Remote / Hybrid / Onsite">Remote / Hybrid / Onsite</option>
                                         <option value="Remote Only">Remote Only</option>
                                         <option value="Hybrid Only">Hybrid Only</option>
                                         <option value="Onsite Only">Onsite Only</option>
                                     </select>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- EEO / Diversity Questions -->
+                        <div class="form-section">
+                            <h3>🌈 EEO / Diversity Questions</h3>
+                            <div class="form-grid">
                                 <div class="form-group">
-                                    <label>Hold Active US Security Clearance?</label>
-                                    <select name="custom_security_clearance" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
-                                        <option value="No">No</option>
-                                        <option value="Yes">Yes</option>
+                                    <label>Gender Identity</label>
+                                    <select name="custom_gender">
+                                        <option value="Male">Male</option>
+                                        <option value="Female">Female</option>
+                                        <option value="Decline to Self-Identify">Decline to Self-Identify</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
-                                    <label>Security Clearance Level</label>
-                                    <input type="text" name="custom_security_clearance_level" placeholder="None (e.g. Secret, Top Secret)">
-                                </div>
-                                <div class="form-group">
-                                    <label>Polygraph Level</label>
-                                    <input type="text" name="custom_polygraph_level" placeholder="None (e.g. CI Poly, Full Scope)">
-                                </div>
-                                <div class="form-group">
-                                    <label>Clearance from MD Agency?</label>
-                                    <select name="custom_md_agency_clearance" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
-                                        <option value="No">No</option>
-                                        <option value="Yes">Yes</option>
+                                    <label>Race / Ethnicity</label>
+                                    <select name="custom_race_ethnicity">
+                                        <option value="Asian">Asian</option>
+                                        <option value="Decline to Self-Identify">Decline to Self-Identify</option>
                                     </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Veteran Status</label>
+                                    <select name="custom_veteran_status">
+                                        <option value="I am not a protected veteran">I am not a protected veteran</option>
+                                        <option value="Decline to Self-Identify">Decline to Self-Identify</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Disability Status</label>
+                                    <select name="custom_disability_status">
+                                        <option value="No, I do not have a disability">No, I do not have a disability</option>
+                                        <option value="Yes, I have a disability">Yes, I have a disability</option>
+                                        <option value="Decline to Self-Identify">Decline to Self-Identify</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Preferred Pronouns</label>
+                                    <input type="text" name="custom_preferred_pronouns" placeholder="He/Him">
                                 </div>
                                 <div class="form-group">
                                     <label>Sexual Orientation</label>
-                                    <select name="custom_sexual_orientation" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_sexual_orientation">
                                         <option value="Decline to Self-Identify">Decline to Self-Identify</option>
                                         <option value="Straight / Heterosexual">Straight / Heterosexual</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
                                     <label>Identify as Transgender?</label>
-                                    <select name="custom_transgender" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_transgender">
                                         <option value="No">No</option>
                                         <option value="Yes">Yes</option>
                                         <option value="Decline to Self-Identify">Decline to Self-Identify</option>
@@ -316,11 +366,26 @@
                                 </div>
                                 <div class="form-group">
                                     <label>Are you Hispanic/Latino?</label>
-                                    <select name="custom_hispanic_latino" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_hispanic_latino">
                                         <option value="No">No</option>
                                         <option value="Yes">Yes</option>
                                         <option value="Decline to Self-Identify">Decline to Self-Identify</option>
                                     </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Compensation, Education & Skills -->
+                        <div class="form-section">
+                            <h3>💰 Compensation, Education & Skills</h3>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Expected Salary / CTC</label>
+                                    <input type="text" name="custom_expected_salary" placeholder="As per company standards">
+                                </div>
+                                <div class="form-group">
+                                    <label>Notice Period</label>
+                                    <input type="text" name="custom_notice_period" placeholder="Immediate (0 days)">
                                 </div>
                                 <div class="form-group">
                                     <label>Graduation Year</label>
@@ -330,7 +395,7 @@
                                     <label>GPA / CGPA</label>
                                     <input type="text" name="custom_gpa_cgpa" placeholder="8.93 / 10.0 CGPA">
                                 </div>
-                                <div class="form-group">
+                                <div class="form-group full-width">
                                     <label>University / School Name</label>
                                     <input type="text" name="custom_university_name" placeholder="Vignan's Institute of Information Technology">
                                 </div>
@@ -355,15 +420,55 @@
                                     <input type="text" name="custom_ai_ml_experience" placeholder="1 year">
                                 </div>
                                 <div class="form-group">
+                                    <label>How did you hear about us?</label>
+                                    <input type="text" name="custom_hear_about_us" placeholder="LinkedIn">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Security Clearance & MD Agency -->
+                        <div class="form-section">
+                            <h3>🛡️ Security Clearance & Special Audits</h3>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Hold Active US Security Clearance?</label>
+                                    <select name="custom_security_clearance">
+                                        <option value="No">No</option>
+                                        <option value="Yes">Yes</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Security Clearance Level</label>
+                                    <input type="text" name="custom_security_clearance_level" placeholder="None (e.g. Secret, Top Secret)">
+                                </div>
+                                <div class="form-group">
+                                    <label>Polygraph Level</label>
+                                    <input type="text" name="custom_polygraph_level" placeholder="None (e.g. CI Poly, Full Scope)">
+                                </div>
+                                <div class="form-group">
+                                    <label>Clearance from MD Agency?</label>
+                                    <select name="custom_md_agency_clearance">
+                                        <option value="No">No</option>
+                                        <option value="Yes">Yes</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Consents & Open-ended Questions -->
+                        <div class="form-section">
+                            <h3>📝 Consents & Open-ended Questions</h3>
+                            <div class="form-grid">
+                                <div class="form-group">
                                     <label>Agree to Background Check?</label>
-                                    <select name="custom_agree_background_check" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_agree_background_check">
                                         <option value="Yes">Yes</option>
                                         <option value="No">No</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
                                     <label>Certify Correct/Accurate Info?</label>
-                                    <select name="custom_certify_correct_information" style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 8px; color: white; padding: 0.55rem; width: 100%;">
+                                    <select name="custom_certify_correct_information">
                                         <option value="Yes">Yes</option>
                                         <option value="No">No</option>
                                     </select>
@@ -382,9 +487,38 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Custom Keyword Mappings UI -->
+                        <div class="form-section">
+                            <h3>🔑 Custom Q&A Keyword Mappings</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                                Add keyword-to-answer mappings for custom questions (e.g. a keyword "authorized" to match "Are you authorized to work?").
+                            </p>
+                            
+                            <div class="keywords-table-container">
+                                <table class="keywords-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Question Keyword</th>
+                                            <th>Auto-fill Answer</th>
+                                            <th style="width: 70px; text-align: center;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="keywordsTableBody">
+                                        <!-- Will be dynamically populated -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="add-keyword-row">
+                                <input type="text" id="newKeywordInput" placeholder="e.g. disability status">
+                                <input type="text" id="newAnswerInput" placeholder="e.g. I prefer not to answer">
+                                <button type="button" id="addKeywordBtn" class="btn btn-primary">Add Mapping</button>
+                            </div>
+                        </div>
                         
                         <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">Save Changes</button>
+                            <button type="submit" class="btn btn-primary" style="padding: 0.9rem 2rem;">Save Profile Settings</button>
                         </div>
                     </form>
                 </div>

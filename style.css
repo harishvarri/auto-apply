@@ -561,7 +561,7 @@ body {
     color: var(--text-secondary);
 }
 
-.form-group input {
+.form-group input, .form-group select, .form-group textarea {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--glass-border);
     border-radius: 8px;
@@ -572,7 +572,7 @@ body {
     transition: var(--transition-smooth);
 }
 
-.form-group input:focus {
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 10px var(--primary-glow);
@@ -644,4 +644,86 @@ body {
 
 .toast.show {
     transform: translateY(0);
+}
+
+/* Custom Q&A Keyword Table Styles */
+.keywords-table-container {
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.01);
+    overflow: hidden;
+    margin-top: 0.5rem;
+}
+
+.keywords-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    text-align: left;
+}
+
+.keywords-table th {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.keywords-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--glass-border);
+    color: var(--text-primary);
+}
+
+.keywords-table tr:last-child td {
+    border-bottom: none;
+}
+
+.keywords-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.add-keyword-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.add-keyword-row input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 0.65rem;
+    color: var(--text-primary);
+    font-family: var(--font-outfit);
+    font-size: 0.85rem;
+}
+
+.add-keyword-row input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.add-keyword-row button {
+    padding: 0.65rem 1.25rem !important;
+    font-size: 0.85rem !important;
+}
+
+.btn-delete-keyword {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #EF4444;
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.btn-delete-keyword:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #F87171;
 }

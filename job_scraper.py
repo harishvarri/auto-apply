@@ -95,7 +95,7 @@ def parse_readme_to_jobs(readme_text, list_source, user_skills, seen_urls, jobs)
                 
                 # Determine location properties
                 loc_lower = location.lower()
-                is_india = any(k in loc_lower for k in ['india', 'bengaluru', 'bangalore', 'hyderabad', 'pune', 'mumbai', 'noida', 'gurugram', 'gurgaon', 'chennai'])
+                is_india = any(k in loc_lower for k in ['india', 'bengaluru', 'bangalore', 'hyderabad', 'pune', 'mumbai', 'noida', 'gurugram', 'gurgaon', 'chennai']) and 'indianapolis' not in loc_lower and 'indiana' not in loc_lower
                 is_remote = 'remote' in loc_lower
                 
                 # Boost match rate significantly for India/Remote freshers
@@ -132,6 +132,10 @@ def scrape_jobs():
     url_simplify = "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/README.md"
     # 2. speedyapply International new grad README
     url_speedy = "https://raw.githubusercontent.com/speedyapply/2026-SWE-College-Jobs/main/NEW_GRAD_INTL.md"
+    # 3. speedyapply International internship README
+    url_speedy_intern = "https://raw.githubusercontent.com/speedyapply/2026-SWE-College-Jobs/main/INTERN_INTL.md"
+    # 4. speedyapply International AI new grad README
+    url_speedy_ai = "https://raw.githubusercontent.com/speedyapply/2026-AI-College-Jobs/main/NEW_GRAD_INTL.md"
     
     user_skills = ["Python", "C++", "C", "SQL", "Power BI", "Excel", "Pandas", "Numpy", "Data Cleaning", 
                    "Django", "MERN Stack", "Artificial Intelligence", "Web Programming", "Supabase", "Github", "Vercel"]
@@ -146,6 +150,14 @@ def scrape_jobs():
     print(" -> Fetching speedyapply International Grad Board...")
     speedy_text = fetch_readme_content(url_speedy)
     parse_readme_to_jobs(speedy_text, "speedyapply", user_skills, seen_urls, jobs)
+
+    print(" -> Fetching speedyapply International Internship Board...")
+    speedy_intern_text = fetch_readme_content(url_speedy_intern)
+    parse_readme_to_jobs(speedy_intern_text, "speedyapply-intern", user_skills, seen_urls, jobs)
+
+    print(" -> Fetching speedyapply International AI Board...")
+    speedy_ai_text = fetch_readme_content(url_speedy_ai)
+    parse_readme_to_jobs(speedy_ai_text, "speedyapply-ai", user_skills, seen_urls, jobs)
     
     # Sort consolidated list by match rate descending so related jobs appear first!
     jobs.sort(key=lambda j: j['match_rate'], reverse=True)

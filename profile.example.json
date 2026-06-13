@@ -1,0 +1,92 @@
+{
+  "personal": {
+    "full_name": "Your Full Name",
+    "first_name": "First",
+    "last_name": "Last",
+    "email": "you@example.com",
+    "phone": "+1-555-000-0000",
+    "location": "City, State, Country",
+    "city": "City",
+    "linkedin": "https://linkedin.com/in/yourprofile",
+    "github": "https://github.com/yourusername",
+    "portfolio": "https://yourportfolio.com",
+    "resume_path": "C:/absolute/path/to/your_resume.pdf"
+  },
+  "education": [
+    {
+      "school": "Your University",
+      "location": "City, Country",
+      "degree": "B.Tech",
+      "major": "Computer Science (AI)",
+      "gpa": "8.5/10",
+      "start_year": "2022",
+      "end_year": "2026"
+    }
+  ],
+  "experience": [
+    {
+      "company": "Company Name",
+      "role": "Software Developer Intern",
+      "start_date": "Jan 2025",
+      "end_date": "Present",
+      "description": "Built AI-powered features. Developed Python automation scripts. Worked with React and Supabase."
+    }
+  ],
+  "projects": [
+    {
+      "title": "Project Name",
+      "technologies": "Python, React, Supabase",
+      "description": "Description of what the project does. Key feature. Another key feature."
+    }
+  ],
+  "skills": {
+    "programming_languages": ["Python", "JavaScript", "TypeScript", "C++", "SQL"],
+    "data_analytics": ["Pandas", "Numpy", "Power BI", "Excel"],
+    "frameworks": ["React", "Django", "FastAPI", "Playwright", "MERN Stack"],
+    "core_subjects": ["Data Structures", "Algorithms", "Machine Learning", "DBMS"],
+    "soft_skills": ["Communication", "Problem Solving", "Team Collaboration"]
+  },
+  "certifications": [
+    "Google Data Analytics Professional Certificate",
+    "AWS Cloud Practitioner"
+  ],
+  "custom_responses": {
+    "authorized_us": "No",
+    "sponsorship_us": "Yes",
+    "authorized_in": "Yes",
+    "sponsorship_in": "No",
+    "notice_period": "Immediate (0 days)",
+    "expected_salary": "As per company standards",
+    "gender": "Decline to Self-Identify",
+    "race_ethnicity": "Decline to Self-Identify",
+    "veteran_status": "I am not a protected veteran",
+    "disability_status": "No, I do not have a disability",
+    "preferred_pronouns": "He/Him",
+    "sexual_orientation": "Decline to Self-Identify",
+    "transgender": "No",
+    "hispanic_latino": "No",
+    "hear_about_us": "LinkedIn",
+    "years_experience": "0 years (Fresher)",
+    "willing_to_relocate": "Yes",
+    "work_mode_preference": "Remote / Hybrid / Onsite",
+    "has_cs_degree": "Yes",
+    "graduation_year": "2026",
+    "gpa_cgpa": "8.5 / 10.0 CGPA",
+    "university_name": "Your University Name",
+    "python_experience": "2 years",
+    "react_experience": "1 year",
+    "sql_experience": "2 years",
+    "js_ts_experience": "1 year",
+    "ai_ml_experience": "1 year",
+    "security_clearance": "No",
+    "security_clearance_level": "None",
+    "polygraph_level": "None",
+    "md_agency_clearance": "No",
+    "agree_background_check": "Yes",
+    "certify_correct_information": "Yes",
+    "why_join_company": "I am excited about this role because it aligns with my skills in AI/ML and software development. I look forward to contributing to your team.",
+    "challenging_project_description": "I built an AI-powered SaaS application using Python, React, and Supabase that automated complex workflows.",
+    "summary_ai_experience": "I have 1 year of hands-on AI/ML experience through internships, building ML models, NLP pipelines, and deploying AI-powered web applications."
+  },
+  "custom_keywords": {}
+}

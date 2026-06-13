@@ -1,18 +1,31 @@
-# Playwright local browser profile
+# Playwright browser profile (large, machine-specific)
 playwright_user_data/
-SingletonLock
 
-# Python cache and byte-code
+# Python cache
 __pycache__/
 *.py[cod]
-*$py.class
+*.pyo
+*.pyd
+.Python
 
-# Environment files
+# Personal data (sensitive — use profile.example.json as template)
+profile.json
+
+# Auto-generated job database (run scraper to populate)
+jobs_database.json
+
+# Generated resume PDFs
+*.pdf
+
+# Environment variables
 .env
 .env.local
 
-# Operating System files
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+# OS junk
 .DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
