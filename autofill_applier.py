@@ -5,6 +5,7 @@ import time
 import datetime
 import urllib.request
 import urllib.parse
+import urllib.error
 from playwright.sync_api import sync_playwright
 
 # Gemini AI enabled - fallback using API key
@@ -79,45 +80,47 @@ def log_pending_question(question, qtype="text", options=None, ai_answer=None):
     except Exception as e:
         print(f"    [PENDING-Q ERROR] {e}")
 
-def call_gemini_api(prompt):
+# Model used for filling unknown form fields. Flash has a far higher
+# requests-per-minute quota than Pro on the free tier, which matters because a
+# single application form can trigger 10-20 calls. Override with GEMINI_MODEL.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+
+def call_gemini_api(prompt, _retries=4):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("    [GEMINI AI WARNING] GEMINI_API_KEY env variable is not set. Skipping Gemini call.")
         return None
-        
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={api_key}"
-    headers = {
-        "Content-Type": "application/json"
-    }
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
     payload = {
-        "contents": [
-            {
-                "parts": [
-                    {
-                        "text": prompt
-                    }
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 250
-        }
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 250},
     }
-    try:
-        req = urllib.request.Request(
-            url, 
-            data=json.dumps(payload).encode('utf-8'), 
-            headers=headers, 
-            method='POST'
-        )
-        with urllib.request.urlopen(req, timeout=15) as response:
-            res_data = json.loads(response.read().decode('utf-8'))
-            text = res_data['candidates'][0]['content']['parts'][0]['text'].strip()
-            return text
-    except Exception as e:
-        print(f"    [GEMINI AI ERROR] Failed calling Gemini API: {e}")
-        return None
+    data = json.dumps(payload).encode("utf-8")
+
+    # Retry with exponential backoff on rate-limit (429) / transient 5xx errors.
+    delay = 4
+    for attempt in range(_retries):
+        try:
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=20) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 503) and attempt < _retries - 1:
+                print(f"    [GEMINI AI] {e.code} rate/transient — backing off {delay}s "
+                      f"(attempt {attempt + 1}/{_retries})")
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+                continue
+            print(f"    [GEMINI AI ERROR] HTTP {e.code} calling Gemini API.")
+            return None
+        except Exception as e:
+            print(f"    [GEMINI AI ERROR] Failed calling Gemini API: {e}")
+            return None
+    return None
 
 def get_gemini_response(label_text, el_type, options_list, profile):
     personal = profile.get("personal", {})
@@ -517,7 +520,13 @@ def find_saved_response(label_text, profile):
         return personal.get("full_name")
     if label == "name":
         return personal.get("full_name")
-    if "name" in label and "first" not in label and "last" not in label and "family" not in label and "given" not in label:
+    # Greedy 'name' match — but exclude fields that merely contain the word
+    # "name" while asking for something else (company/college/employer/etc.).
+    _name_exclusions = ["first", "last", "family", "given", "company", "organi",
+                        "employer", "college", "university", "school", "title",
+                        "designation", "project", "manager", "reference", "file",
+                        "user", "screen", "domain"]
+    if "name" in label and not any(x in label for x in _name_exclusions):
         return personal.get("full_name")
     if "city" in label or ("location" in label and "relocat" not in label):
         city = personal.get("city", "")
@@ -1700,15 +1709,17 @@ def handle_redirection_and_apply(page, profile, job, all_jobs):
                     pass
                 return True
             else:
-                print(f"Submitted (unverified): {job_title} at {company_name}")
-                update_status_banner(page, 'info', f'🌌 Submitted (check manually): {job_title}')
-                job['status'] = 'Applied'
+                # Submit was clicked but we couldn't confirm success and/or
+                # validation errors remained — don't claim a false "Applied".
+                print(f"Submitted but unverified: {job_title} at {company_name} — flagging for review")
+                update_status_banner(page, 'info', f'🌌 Submitted (verify manually): {job_title}')
+                job['status'] = 'Review Required'
                 save_jobs(all_jobs)
                 try:
                     page.close()
                 except Exception:
                     pass
-                return True
+                return False
         else:
             print(f"No submit button found for {job_title} at {company_name}.")
             update_status_banner(page, 'error', '🌌 Auto-Applier: No submit button found.')
