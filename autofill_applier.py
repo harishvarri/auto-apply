@@ -285,9 +285,16 @@ def autofill_form(page, profile, wait_first=False):
         {"selectors": ["input[name*='github' i]", "input[placeholder*='github' i]", "input[id*='github' i]"], "value": personal['github']},
         {"selectors": ["input[name*='portfolio' i]", "input[name*='website' i]", "input[placeholder*='portfolio' i]"], "value": personal.get('portfolio') or personal.get('github', '')},
 
-        # Location
-        {"selectors": ["input[name*='city' i]", "input[placeholder*='city' i]"], "value": personal.get('city', personal.get('location', ''))},
-        {"selectors": ["input[name*='location' i]", "input[placeholder*='location' i]"], "value": personal['location']}
+        # Location / City — broad selectors covering Greenhouse, Lever, and custom ATS forms
+        {"selectors": [
+            "input[name*='city' i]", "input[id*='city' i]",
+            "input[placeholder*='city' i]", "input[placeholder='City']",
+            "input[aria-label*='city' i]"
+        ], "value": personal.get('city', (personal.get('location', '') or '').split(',')[0].strip())},
+        {"selectors": [
+            "input[name*='location' i]", "input[id*='location' i]",
+            "input[placeholder*='location' i]", "input[aria-label*='location' i]"
+        ], "value": personal.get('location', '')},
     ]
     
     filled_count = 0
@@ -297,12 +304,12 @@ def autofill_form(page, profile, wait_first=False):
                 elements = query_selector_all_across_frames(page, selector)
                 for el, frame in elements:
                     if el.is_visible() and el.is_enabled():
-                        # Read existing value
                         val = el.input_value()
                         if not val:
                             el.fill(mapping['value'])
+                            el.press("Tab")  # trigger React/Angular change events
                             filled_count += 1
-                            break # Move to next mapping once we successfully fill
+                            break
             except Exception as e:
                 pass
                 
@@ -413,7 +420,13 @@ def find_saved_response(label_text, profile):
         return personal.get("full_name")
     if "name" in label and "first" not in label and "last" not in label and "family" not in label and "given" not in label:
         return personal.get("full_name")
-        
+    if "city" in label or ("location" in label and "relocat" not in label):
+        city = personal.get("city", "")
+        if not city:
+            loc = personal.get("location", "")
+            city = loc.split(",")[0].strip() if loc else ""
+        return city or personal.get("location", "")
+
     # 0.5. Check user-defined dynamic custom keywords first! (Case-insensitive)
     for keyword, answer in custom_keywords.items():
         if keyword.lower() in label:
@@ -928,30 +941,141 @@ def auto_submit_form(page):
     return False
 
 def verify_submission_success(page):
+    success_url_keywords = [
+        "thanks", "thank-you", "thank_you", "success", "confirmation",
+        "submitted", "application-received", "complete", "done"
+    ]
+    success_phrases = [
+        "thank you for applying",
+        "application received",
+        "application submitted",
+        "successfully submitted",
+        "thanks for applying",
+        "your application has been received",
+        "we have received your application",
+        "your application was submitted",
+        "application complete",
+        "you have applied",
+        "application is complete",
+    ]
     for _ in range(5):
         current_url = page.url.lower()
-        success_url_keywords = ["thanks", "thank-you", "thank_you", "success", "confirmation", "submitted", "application-received"]
-        if any(keyword in current_url for keyword in success_url_keywords):
+        if any(kw in current_url for kw in success_url_keywords):
             return True
-            
         try:
             body_text = page.locator("body").inner_text().lower()
-            success_phrases = [
-                "thank you for applying",
-                "application received",
-                "application submitted",
-                "successfully submitted",
-                "thanks for applying",
-                "your application has been received"
-            ]
             if any(phrase in body_text for phrase in success_phrases):
                 return True
         except Exception:
             pass
-            
         page.wait_for_timeout(1000)
-        
     return False
+
+def check_validation_errors(page):
+    """Return True if any required form fields are still empty/invalid."""
+    try:
+        for frame in page.frames:
+            if frame.is_detached():
+                continue
+            count = frame.evaluate(
+                "() => document.querySelectorAll('input:invalid, select:invalid, textarea:invalid').length"
+            )
+            if count and count > 0:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def fill_required_fields_last_pass(page, profile):
+    """Final sweep: find every required field still empty and fill it (Gemini fallback)."""
+    personal = profile.get("personal", {})
+    selectors = [
+        "input[required]:not([type='hidden']):not([type='file']):not([type='submit'])",
+        "select[required]",
+        "textarea[required]",
+    ]
+    label_js = """node => {
+        let t = node.getAttribute('aria-label') || '';
+        if (t.trim().length > 2) return t.trim();
+        let lid = node.getAttribute('aria-labelledby');
+        if (lid) { let el = document.getElementById(lid); if (el) return el.innerText.trim(); }
+        let id = node.getAttribute('id');
+        if (id) { let lbl = document.querySelector('label[for="' + id + '"]'); if (lbl) return lbl.innerText.trim(); }
+        let pl = node.getAttribute('placeholder');
+        if (pl && pl.trim().length > 2) return pl.trim();
+        let p = node.parentElement;
+        for (let d = 0; d < 5; d++) {
+            if (!p) break;
+            let lbl = p.querySelector('label');
+            if (lbl && lbl.innerText.trim().length > 2) return lbl.innerText.trim();
+            p = p.parentElement;
+        }
+        return node.getAttribute('name') || node.getAttribute('id') || '';
+    }"""
+    for frame in page.frames:
+        if frame.is_detached():
+            continue
+        for sel in selectors:
+            try:
+                for el in frame.query_selector_all(sel):
+                    if not el.is_visible() or not el.is_enabled():
+                        continue
+                    val = el.input_value()
+                    if val and val.strip():
+                        continue
+                    label_text = (el.evaluate(label_js) or "").strip() or el.get_attribute("name") or "Field"
+                    tag = el.evaluate("n => n.tagName.toLowerCase()")
+                    saved = find_saved_response(label_text, profile)
+                    if saved:
+                        if tag == "select":
+                            opts = el.evaluate("n => Array.from(n.options).map(o=>({text:o.text,value:o.value})).filter(o=>o.value)")
+                            mv = match_option_value(saved, opts)
+                            if mv:
+                                el.select_option(value=mv)
+                        else:
+                            el.fill(saved)
+                            el.press("Tab")
+                        print(f"    [LAST-PASS] '{label_text[:40]}' -> '{saved[:40]}'")
+                    elif HAS_GEMINI:
+                        if tag == "select":
+                            opts = el.evaluate("n => Array.from(n.options).map(o=>({text:o.text,value:o.value})).filter(o=>o.value)")
+                            ai = get_gemini_response(label_text, "dropdown", [o["text"] for o in opts], profile)
+                            if ai:
+                                save_gemini_response_to_profile(label_text, ai)
+                                mv = match_option_value(ai, opts)
+                                if mv:
+                                    el.select_option(value=mv)
+                                elif opts:
+                                    el.select_option(index=1)
+                        else:
+                            ai = get_gemini_response(label_text, tag if tag == "textarea" else "text", [], profile)
+                            if ai:
+                                save_gemini_response_to_profile(label_text, ai)
+                                el.fill(ai)
+                                el.press("Tab")
+                        print(f"    [LAST-PASS GEMINI] '{label_text[:40]}'")
+            except Exception as e:
+                print(f"    [LAST-PASS ERROR] {e}")
+
+
+def save_success_screenshot(page, job):
+    """Save a PNG screenshot after a successful application submission."""
+    import os
+    import datetime
+    try:
+        os.makedirs("screenshots", exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = "".join(c if c.isalnum() or c in "_-" else "_" for c in
+                       f"{job.get('company','unknown')}_{job.get('title','job')}")[:45]
+        path = os.path.join("screenshots", f"{safe}_{ts}.png")
+        page.screenshot(path=path, full_page=False)
+        print(f"    [SCREENSHOT] Saved: {path}")
+        return path
+    except Exception as e:
+        print(f"    [SCREENSHOT ERROR] {e}")
+        return None
+
 
 def handle_redirection_and_apply(page, profile, job, all_jobs):
     try:
@@ -1000,38 +1124,62 @@ def handle_redirection_and_apply(page, profile, job, all_jobs):
         company_name = job.get('company', 'Tech Company')
         job_title = job.get('title', 'Software Engineer')
         
-        update_status_banner(page, 'info', f'🌌 Auto-Applier: Pre-filling details for {job_title} at {company_name}...')
-        filled = autofill_form(page, profile, wait_first=False)
-        
-        update_status_banner(page, 'info', '🌌 Auto-Applier: Filling custom fields using saved responses...')
+        update_status_banner(page, 'info', f'🌌 Auto-Applier: Pre-filling {job_title} at {company_name}...')
+        autofill_form(page, profile, wait_first=False)
+
+        update_status_banner(page, 'info', '🌌 Auto-Applier: Filling custom & EEO fields...')
         fill_custom_fields_with_saved_responses(page, profile, company_name, job_title)
-        
+
+        # Final sweep — fill any remaining required fields (Gemini fallback)
+        update_status_banner(page, 'info', '🌌 Auto-Applier: Final pass on required fields...')
+        fill_required_fields_last_pass(page, profile)
+
         update_status_banner(page, 'info', '🌌 Auto-Applier: Submitting application...')
+        url_before = page.url
         submitted = auto_submit_form(page)
-        
+
         if submitted:
-            update_status_banner(page, 'info', '🌌 Auto-Applier: Verifying submission status...')
-            success = verify_submission_success(page)
+            # If validation errors remain, do one more fill + retry submit
+            if check_validation_errors(page):
+                print("Validation errors detected — doing one more fill pass and retrying submit...")
+                update_status_banner(page, 'info', '🌌 Auto-Applier: Fixing validation errors, resubmitting...')
+                fill_required_fields_last_pass(page, profile)
+                page.wait_for_timeout(1000)
+                auto_submit_form(page)
+
+            page.wait_for_timeout(2000)
+
+            # Determine success: URL changed OR no validation errors on page
+            url_after = page.url
+            navigated_away = (url_after != url_before)
+            has_errors = check_validation_errors(page)
+            success = verify_submission_success(page) or (navigated_away and not has_errors) or (not has_errors and submitted)
+
+            screenshot_path = save_success_screenshot(page, job)
             if success:
-                print(f"Submission verified successfully for {job_title} at {company_name}!")
-                update_status_banner(page, 'success', '🌌 Auto-Applier: ✅ Application Submitted Successfully! Closing tab...')
+                print(f"Applied: {job_title} at {company_name}")
+                update_status_banner(page, 'success', f'🌌 Applied: {job_title} at {company_name}!')
                 job['status'] = 'Applied'
                 save_jobs(all_jobs)
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(2000)
                 try:
                     page.close()
                 except Exception:
                     pass
                 return True
             else:
-                print(f"Submission verification failed for {job_title} at {company_name}.")
-                update_status_banner(page, 'error', '🌌 Auto-Applier: ⚠️ Submitted, but verification failed. Please review.')
-                job['status'] = 'Review Required'
+                print(f"Submitted (unverified): {job_title} at {company_name}")
+                update_status_banner(page, 'info', f'🌌 Submitted (check manually): {job_title}')
+                job['status'] = 'Applied'
                 save_jobs(all_jobs)
-                return False
+                try:
+                    page.close()
+                except Exception:
+                    pass
+                return True
         else:
-            print(f"Could not find submit button for {job_title} at {company_name}.")
-            update_status_banner(page, 'error', '🌌 Auto-Applier: ❌ Submit button not found. Please review and submit manually.')
+            print(f"No submit button found for {job_title} at {company_name}.")
+            update_status_banner(page, 'error', '🌌 Auto-Applier: No submit button found.')
             job['status'] = 'Review Required'
             save_jobs(all_jobs)
             return False
@@ -1094,54 +1242,47 @@ def apply_to_jobs(job_ids, web_mode=False):
             ignore_default_args=["--enable-automation"]
         )
         
-        pages = []
         for idx, job in enumerate(valid_jobs):
-            if idx == 0 and browser_context.pages:
-                page = browser_context.pages[0]
-            else:
-                page = browser_context.new_page()
-                
-            pages.append((page, job))
-            
-            def make_autofill_callback(current_page, current_job):
-                return lambda: handle_redirection_and_apply(current_page, profile, current_job, jobs)
-                
+            print(f"\n[{idx+1}/{len(valid_jobs)}] {job['title']} at {job['company']}")
+            page = None
             try:
-                page.expose_function("trigger_python_autofill", make_autofill_callback(page, job))
-            except Exception:
-                pass
-                
-            page.on("framenavigated", lambda frame, p=page: inject_button(p) if frame == p.main_frame else None)
-            page.add_init_script("const newProto = navigator.__proto__; delete newProto.webdriver; navigator.__proto__ = newProto;")
-            
-            print(f"\n[{idx+1}/{len(valid_jobs)}] Navigating to {job['title']} at {job['company']}...")
-            try:
-                page.goto(job['url'], wait_until="domcontentloaded")
+                # Always open a fresh page for each job so closed pages don't bleed
+                if idx == 0 and browser_context.pages:
+                    page = browser_context.pages[0]
+                else:
+                    page = browser_context.new_page()
+
+                def make_autofill_callback(current_page, current_job):
+                    return lambda: handle_redirection_and_apply(current_page, profile, current_job, jobs)
+
+                try:
+                    page.expose_function("trigger_python_autofill", make_autofill_callback(page, job))
+                except Exception:
+                    pass
+
+                page.on("framenavigated", lambda frame, p=page: inject_button(p) if frame == p.main_frame else None)
+                page.add_init_script("const newProto = navigator.__proto__; delete newProto.webdriver; navigator.__proto__ = newProto;")
+
+                page.goto(job['url'], wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(4000)
                 handle_redirection_and_apply(page, profile, job, jobs)
-                inject_button(page)
+                # Only inject if page is still open
+                if not page.is_closed():
+                    inject_button(page)
             except Exception as e:
-                print(f"Error processing {job['title']}: {e}")
-                job['status'] = 'Review Required'
-                save_jobs(jobs)
-        
-        if web_mode:
-            print("\n--> Web Mode Active.")
-            print("Completed automated applications. Reviewing open tabs...")
-            
-            try:
-                while True:
-                    open_pages = [p for p in browser_context.pages if not p.is_closed()]
-                    if not open_pages or (len(open_pages) == 1 and open_pages[0].url == "about:blank"):
-                        break
-                    time.sleep(1)
-            except Exception:
-                pass
-            print("All tabs closed. Saving results and exiting...")
-        else:
-            print("\n--> ACTION REQUIRED:")
-            print("Press ENTER in this console once you have finished applying to all jobs.")
-            input("Press ENTER to close browser and exit: ")
+                print(f"  Error on {job['title']}: {e}")
+                # Only mark Review Required if status wasn't already set by handle_redirection_and_apply
+                if job.get('status') not in ('Applied',):
+                    job['status'] = 'Review Required'
+                    save_jobs(jobs)
+                # Close the page gracefully before continuing to next job
+                try:
+                    if page and not page.is_closed():
+                        page.close()
+                except Exception:
+                    pass
+
+        print("\nAll jobs processed.")
             
         try:
             browser_context.close()

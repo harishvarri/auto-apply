@@ -25,6 +25,13 @@ jobs_database.json
 .DS_Store
 Thumbs.db
 
+# Screenshots (may contain personal data)
+screenshots/
+
+# Debug helper scripts
+check_ids.py
+check_status.py
+
 # Editor
 .vscode/
 .idea/
