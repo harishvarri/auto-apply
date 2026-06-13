@@ -1,8 +1,53 @@
 import json
 import os
+import re
 import urllib.parse
+import datetime
 import requests
 import bs4
+
+UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+
+
+def today_iso():
+    return datetime.date.today().isoformat()
+
+
+def parse_relative_date(text):
+    """Convert 'Posted 3 days ago' / 'today' / '2 weeks ago' into an ISO date string."""
+    if not text:
+        return today_iso()
+    t = text.lower().strip()
+    today = datetime.date.today()
+    if 'just now' in t or 'today' in t or 'few hours' in t or 'hour' in t or 'minute' in t:
+        return today.isoformat()
+    if 'yesterday' in t:
+        return (today - datetime.timedelta(days=1)).isoformat()
+    m = re.search(r'(\d+)\s*(day|week|month)', t)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        if unit == 'day':
+            delta = n
+        elif unit == 'week':
+            delta = n * 7
+        else:  # month
+            delta = n * 30
+        return (today - datetime.timedelta(days=delta)).isoformat()
+    return today_iso()
+
+
+def normalize_iso_date(value):
+    """Normalize various ISO/RFC datetime strings to a YYYY-MM-DD date string."""
+    if not value:
+        return today_iso()
+    try:
+        # Handle '2026-06-12', '2026-06-02T13:47:37-04:00', '2026-06-10T18:54:28Z'
+        s = str(value).strip()
+        return s[:10] if len(s) >= 10 and s[4] == '-' else today_iso()
+    except Exception:
+        return today_iso()
+
 
 def fetch_readme_content(url):
     headers = {
@@ -116,7 +161,7 @@ def parse_readme_to_jobs(readme_text, list_source, user_skills, seen_urls, jobs)
                     "description": f"Direct entry-level software/tech role at {company}. Position: {title} in {location}. Fully automated autofill is ready. Required skills: {', '.join(skills_required)}.",
                     "skills_required": skills_required,
                     "source": "Lever Form" if is_lever else "Greenhouse Form",
-                    "date_posted": "June 2026",
+                    "date_posted": today_iso(),
                     "status": "Pending",
                     "match_rate": max(match_rate, 45)
                 })
@@ -180,6 +225,10 @@ def scrape_internshala_jobs(seen_urls, jobs, user_skills):
                     if href in seen_urls:
                         continue
                     seen_urls.add(href)
+                    # Extract posting date from "Posted X days ago" text
+                    card_text = card.get_text(" ", strip=True)
+                    dm = re.search(r'(\d+\s*(?:day|days|week|weeks|hour|hours|month|months)\s*ago|just now|today|few hours ago|yesterday)', card_text, re.I)
+                    date_posted = parse_relative_date(dm.group(0)) if dm else today_iso()
                     title_lower = title.lower()
                     skills = ["Python", "SQL"]
                     if any(k in title_lower for k in ["react", "front", "web", "ui", "angular", "vue"]):
@@ -196,7 +245,7 @@ def scrape_internshala_jobs(seen_urls, jobs, user_skills):
                         "description": f"{'Internship' if is_internship else 'Job'} at {company} on Internshala. Role: {title}. Location: {location}.",
                         "skills_required": skills,
                         "source": "Internshala",
-                        "date_posted": "June 2026",
+                        "date_posted": date_posted,
                         "status": "Pending",
                         "match_rate": match_rate
                     })
@@ -256,6 +305,9 @@ def scrape_linkedin_india_jobs(seen_urls, jobs, user_skills):
                         if not href or href in seen_urls:
                             continue
                         seen_urls.add(href)
+                        # Real posting date from the <time datetime="..."> element
+                        time_el = card.select_one('time')
+                        date_posted = normalize_iso_date(time_el.get('datetime')) if (time_el and time_el.get('datetime')) else today_iso()
                         title_lower = title.lower()
                         skills = ["Python", "SQL"]
                         if any(k in title_lower for k in ["react", "front", "web", "ui"]):
@@ -272,7 +324,7 @@ def scrape_linkedin_india_jobs(seen_urls, jobs, user_skills):
                             "description": f"{title} at {company} via LinkedIn. Location: {job_location}.",
                             "skills_required": skills,
                             "source": "LinkedIn",
-                            "date_posted": "June 2026",
+                            "date_posted": date_posted,
                             "status": "Pending",
                             "match_rate": match_rate
                         })
@@ -290,95 +342,76 @@ def scrape_linkedin_india_jobs(seen_urls, jobs, user_skills):
     return added
 
 
-def scrape_naukri_india_jobs(seen_urls, jobs, user_skills):
-    """Scrape Naukri.com India fresher jobs. Tries JSON API first, falls back to Playwright stealth browser."""
-    # Naukri blocks plain requests (HTTP 406) and renders cards via JS, so we
-    # use a headless stealth Playwright browser with a fresh temp profile.
-    search_slugs = [
-        "software-engineer", "python-developer", "data-analyst",
-        "machine-learning-engineer", "frontend-developer",
-        "software-developer", "data-scientist",
-    ]
-    added = 0
-    try:
-        from playwright.sync_api import sync_playwright
-    except Exception:
-        print("  -> Naukri: Playwright not available, skipping.")
-        return 0
+def scrape_greenhouse_india_boards(seen_urls, jobs, user_skills):
+    """Scrape public Greenhouse company board APIs for India roles.
 
-    import tempfile
-    tmp_profile = os.path.join(tempfile.gettempdir(), "naukri_scrape_profile")
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-infobars",
-                    "--no-sandbox",
-                ],
+    Greenhouse exposes a fully public JSON API per company board:
+      https://boards-api.greenhouse.io/v1/boards/{slug}/jobs
+    No auth, no bot-blocking, real apply URLs (which our autofiller handles),
+    and real updated_at dates. We curate a list of companies known to hire in
+    India; unknown/closed boards just return 404 and are skipped.
+    """
+    # Companies with India hiring that use Greenhouse boards. 404s are skipped.
+    company_slugs = [
+        "postman", "razorpaysoftwareprivatelimited", "gong", "airbnb", "dropbox",
+        "stripe", "databricks", "cloudflare", "sumologic", "hashicorp",
+        "samsara", "rubrik", "wealthsimple", "twilio", "coursera",
+        "mongodb", "atlassian", "snyk", "confluent", "gitlab",
+        "nutanix", "freshworksinc", "zscaler", "harness", "chargebee",
+        "innovaccer", "browserstack", "postmaninc", "sprinklr", "druva",
+    ]
+    headers = {'User-Agent': UA, 'Accept': 'application/json'}
+    added = 0
+    for slug in company_slugs:
+        try:
+            r = requests.get(
+                f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
+                headers=headers, timeout=20,
             )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1366, "height": 900},
-                locale="en-IN",
-            )
-            context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
-            page = context.new_page()
-            for slug in search_slugs:
+            if not r.ok:
+                continue
+            board_jobs = r.json().get('jobs', [])
+            for j in board_jobs:
                 try:
-                    url = f"https://www.naukri.com/{slug}-jobs-in-india?experience=0"
-                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                    page.wait_for_timeout(3500)  # let JS render the cards
-                    # Naukri job cards (class names change periodically — use broad selectors)
-                    cards = page.query_selector_all("div.srp-jobtuple-wrapper, article.jobTuple, .cust-job-tuple")
-                    for card in cards:
-                        try:
-                            title_el = card.query_selector("a.title")
-                            company_el = card.query_selector("a.comp-name, .companyInfo .subTitle, a.subTitle")
-                            location_el = card.query_selector("span.locWdth, .loc span, .ellipsis.fleft.locWdth")
-                            if not title_el:
-                                continue
-                            title = (title_el.inner_text() or "").strip()
-                            company = (company_el.inner_text() or "").strip() if company_el else "Company"
-                            job_location = (location_el.inner_text() or "").strip() if location_el else "India"
-                            href = title_el.get_attribute("href") or ""
-                            if not href or href in seen_urls:
-                                continue
-                            seen_urls.add(href)
-                            title_lower = title.lower()
-                            skills = ["Python", "SQL"]
-                            if any(k in title_lower for k in ["react", "front", "web"]):
-                                skills.append("MERN Stack")
-                            if any(k in title_lower for k in ["data", "ml", "ai"]):
-                                skills.extend(["Pandas", "Artificial Intelligence"])
-                            match_rate = min(70 + len([s for s in skills if s in user_skills]) * 4, 90)
-                            jobs.append({
-                                "id": f"real_{len(jobs):03d}",
-                                "title": title,
-                                "company": company,
-                                "location": job_location + (", India" if "india" not in job_location.lower() else ""),
-                                "url": href,
-                                "description": f"{title} at {company} via Naukri.com. Location: {job_location}.",
-                                "skills_required": skills,
-                                "source": "Naukri",
-                                "date_posted": "June 2026",
-                                "status": "Pending",
-                                "match_rate": match_rate
-                            })
-                            added += 1
-                        except Exception:
-                            continue
-                except Exception as e:
-                    print(f"  Naukri page error ({slug}): {e}")
-            try:
-                context.close()
-                browser.close()
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"  Naukri Playwright error: {e}")
-    print(f"  -> Naukri: {added} jobs found.")
+                    loc_name = (j.get('location', {}) or {}).get('name', '') or ''
+                    if 'india' not in loc_name.lower() and not any(
+                        c in loc_name.lower() for c in
+                        ['bengaluru', 'bangalore', 'hyderabad', 'pune', 'mumbai',
+                         'noida', 'gurugram', 'gurgaon', 'chennai', 'delhi', 'kolkata']
+                    ):
+                        continue
+                    title = j.get('title', '').strip()
+                    href = j.get('absolute_url', '')
+                    if not title or not href or href in seen_urls:
+                        continue
+                    seen_urls.add(href)
+                    company = (j.get('company_name') or slug.replace('inc', '').replace('-', ' ')).title()
+                    title_lower = title.lower()
+                    skills = ["Python", "SQL"]
+                    if any(k in title_lower for k in ["react", "front", "web", "ui"]):
+                        skills.extend(["MERN Stack", "Web Programming"])
+                    if any(k in title_lower for k in ["data", "ml", "ai", "machine"]):
+                        skills.extend(["Pandas", "Artificial Intelligence"])
+                    match_rate = min(78 + len([s for s in skills if s in user_skills]) * 4, 96)
+                    jobs.append({
+                        "id": f"real_{len(jobs):03d}",
+                        "title": title,
+                        "company": company,
+                        "location": loc_name if 'india' in loc_name.lower() else (loc_name + ", India"),
+                        "url": href,
+                        "description": f"{title} at {company} (Greenhouse). Location: {loc_name}.",
+                        "skills_required": skills,
+                        "source": "Greenhouse Form",
+                        "date_posted": normalize_iso_date(j.get('updated_at')),
+                        "status": "Pending",
+                        "match_rate": match_rate
+                    })
+                    added += 1
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    print(f"  -> Greenhouse India boards: {added} jobs found.")
     return added
 
 def scrape_jobs():
@@ -421,8 +454,8 @@ def scrape_jobs():
     print(" -> Scraping LinkedIn India jobs...")
     scrape_linkedin_india_jobs(seen_urls, jobs, user_skills)
 
-    print(" -> Scraping Naukri India jobs...")
-    scrape_naukri_india_jobs(seen_urls, jobs, user_skills)
+    print(" -> Scraping Greenhouse India company boards...")
+    scrape_greenhouse_india_boards(seen_urls, jobs, user_skills)
 
     # Preserve Applied / Review Required statuses from any previous run (match by URL).
     # Also keep prior custom_* URL applications so Quick Apply history survives a refresh.

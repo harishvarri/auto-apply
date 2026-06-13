@@ -103,7 +103,8 @@ class JobApplierHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     jobs = []
 
-                import time, re
+                import time, re, datetime as _dt
+                today_str = _dt.date.today().isoformat()
                 new_job_ids = []
                 for i, url in enumerate(urls[:20]):  # cap at 20
                     url = url.strip()
@@ -137,7 +138,7 @@ class JobApplierHandler(http.server.SimpleHTTPRequestHandler):
                         "description": f"Custom URL application via Quick Apply. Source: {source}",
                         "skills_required": ["Python", "SQL"],
                         "source": "Custom URL",
-                        "date_posted": "June 2026",
+                        "date_posted": today_str,
                         "status": "Pending",
                         "match_rate": 80
                     })
@@ -259,8 +260,89 @@ class JobApplierHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error_response(500, f"Parse resume error: {str(e)}")
 
+        elif self.path == '/api/answer-question':
+            # User provides a canonical answer to an obstacle question.
+            # Saves it to profile.custom_keywords (so find_saved_response reuses it)
+            # and removes it from pending_questions.json.
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            try:
+                data = json.loads(post_data)
+                q_id = data.get('id')
+                answer = data.get('answer', '')
+                keyword = (data.get('keyword') or '').strip()
+
+                # Load pending questions
+                pending = []
+                if os.path.exists('pending_questions.json'):
+                    with open('pending_questions.json', 'r', encoding='utf-8') as f:
+                        pending = json.load(f)
+
+                matched = next((q for q in pending if q.get('id') == q_id), None)
+                if not matched:
+                    self.send_error_response(404, "Question not found")
+                    return
+
+                # Use provided keyword, else derive from the question text
+                if not keyword:
+                    keyword = matched.get('question', '')[:80]
+
+                # Save to profile.custom_keywords for automatic reuse
+                if os.path.exists('profile.json'):
+                    with open('profile.json', 'r', encoding='utf-8') as f:
+                        profile = json.load(f)
+                else:
+                    profile = {}
+                profile.setdefault('custom_keywords', {})
+                profile['custom_keywords'][keyword] = answer
+                with open('profile.json', 'w', encoding='utf-8') as f:
+                    json.dump(profile, f, indent=2)
+
+                # Remove the answered question from pending
+                pending = [q for q in pending if q.get('id') != q_id]
+                with open('pending_questions.json', 'w', encoding='utf-8') as f:
+                    json.dump(pending, f, indent=2)
+
+                self.send_success_response({"status": "saved", "keyword": keyword, "remaining": len(pending)})
+            except Exception as e:
+                self.send_error_response(500, f"Answer question error: {str(e)}")
+
+        elif self.path == '/api/dismiss-question':
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            try:
+                data = json.loads(post_data)
+                q_id = data.get('id')
+                pending = []
+                if os.path.exists('pending_questions.json'):
+                    with open('pending_questions.json', 'r', encoding='utf-8') as f:
+                        pending = json.load(f)
+                pending = [q for q in pending if q.get('id') != q_id]
+                with open('pending_questions.json', 'w', encoding='utf-8') as f:
+                    json.dump(pending, f, indent=2)
+                self.send_success_response({"status": "dismissed", "remaining": len(pending)})
+            except Exception as e:
+                self.send_error_response(500, f"Dismiss error: {str(e)}")
+
         else:
             self.send_error_response(404, "Endpoint not found")
+
+    def do_GET(self):
+        # API: list pending obstacle questions
+        if self.path.startswith('/api/pending-questions'):
+            try:
+                pending = []
+                if os.path.exists('pending_questions.json'):
+                    with open('pending_questions.json', 'r', encoding='utf-8') as f:
+                        pending = json.load(f)
+                # Sort by most-seen then most-recent
+                pending.sort(key=lambda q: (q.get('count', 1), q.get('last_seen', '')), reverse=True)
+                self.send_success_response(pending)
+            except Exception as e:
+                self.send_error_response(500, f"Pending questions error: {str(e)}")
+            return
+        # Everything else: serve static files (default behavior)
+        return super().do_GET()
 
     def send_success_response(self, data):
         self.send_response(200)

@@ -14,6 +14,9 @@ profile.json
 # Auto-generated job database (run scraper to populate)
 jobs_database.json
 
+# Captured obstacle questions awaiting user answers (user data)
+pending_questions.json
+
 # Generated resume PDFs
 *.pdf
 

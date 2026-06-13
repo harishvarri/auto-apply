@@ -727,3 +727,252 @@ body {
     border-color: rgba(239, 68, 68, 0.5);
     color: #F87171;
 }
+
+/* Global form-section card (used in Q&A, Quick Apply, Calendar tabs) */
+.form-section {
+    background: var(--glass-card);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    backdrop-filter: blur(10px);
+}
+
+/* ============================================================
+   CALENDAR TAB
+   ============================================================ */
+.calendar-container {
+    background: var(--glass-card);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    backdrop-filter: blur(10px);
+}
+
+.calendar-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.calendar-nav .btn {
+    padding: 0.4rem 0.9rem;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.cal-month-label {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    min-width: 180px;
+    text-align: center;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+}
+
+.cal-weekday {
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    padding: 0.5rem 0;
+}
+
+.cal-day {
+    position: relative;
+    min-height: 64px;
+    padding: 0.5rem;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.015);
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.cal-day:hover {
+    border-color: var(--accent-cyan);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.cal-day.empty {
+    background: transparent;
+    border-color: transparent;
+    cursor: default;
+}
+
+.cal-day-num {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.cal-day.has-jobs {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 12px hsla(189, 94%, 43%, 0.2);
+}
+
+.cal-day.has-jobs .cal-day-num {
+    color: var(--text-primary);
+}
+
+.cal-day.today {
+    border-color: var(--primary);
+    background: var(--primary-glow);
+}
+
+.cal-day.today .cal-day-num {
+    color: var(--primary);
+    font-weight: 800;
+}
+
+.cal-day-badge {
+    position: absolute;
+    bottom: 0.4rem;
+    right: 0.4rem;
+    background: linear-gradient(135deg, var(--primary), var(--accent-cyan));
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 0.35rem;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.calendar-day-jobs {
+    margin-top: 0.5rem;
+}
+
+.cal-job-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    background: var(--glass-card);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.6rem;
+}
+
+.cal-job-main h4 {
+    font-size: 0.95rem;
+    margin-bottom: 0.2rem;
+    color: var(--text-primary);
+}
+
+.cal-job-main p {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.cal-job-side {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-shrink: 0;
+}
+
+.cal-job-link {
+    color: var(--accent-cyan);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.cal-job-link:hover {
+    text-decoration: underline;
+}
+
+/* ============================================================
+   ANSWER BANK / Q&A TAB
+   ============================================================ */
+.qa-card {
+    background: var(--glass-card);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 1rem;
+    backdrop-filter: blur(10px);
+}
+
+.qa-question {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.35rem;
+}
+
+.qa-meta {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+}
+
+.qa-textarea {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    padding: 0.6rem;
+    font-family: inherit;
+    font-size: 0.88rem;
+    resize: vertical;
+}
+
+.qa-textarea:focus {
+    outline: none;
+    border-color: var(--accent-cyan);
+}
+
+.qa-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 0.75rem;
+}
+
+.qa-actions .btn {
+    padding: 0.5rem 1.1rem;
+    font-size: 0.85rem;
+}
+
+.saved-answer-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.015);
+    margin-bottom: 0.5rem;
+}
+
+.saved-answer-keyword {
+    font-family: monospace;
+    font-weight: 600;
+    color: var(--accent-cyan);
+    flex: 0 0 200px;
+    word-break: break-word;
+}
+
+.saved-answer-value {
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    flex: 1;
+}

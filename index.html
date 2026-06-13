@@ -31,6 +31,8 @@
             <nav class="nav-menu">
                 <button class="nav-item active" data-tab="jobs">💼 Global Jobs</button>
                 <button class="nav-item" data-tab="india-jobs">🇮🇳 India Jobs</button>
+                <button class="nav-item" data-tab="calendar">📅 Calendar</button>
+                <button class="nav-item" data-tab="qa">🧠 Answer Bank</button>
                 <button class="nav-item" data-tab="quick-apply">⚡ Quick Apply</button>
                 <button class="nav-item" data-tab="profile">👤 Resume Profile</button>
             </nav>
@@ -555,6 +557,45 @@
                         <h3>Recent Custom Applications</h3>
                         <div id="customJobsList" style="margin-top:1rem;"></div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Calendar Tab -->
+            <div id="calendarTab" class="tab-content">
+                <div class="profile-header">
+                    <h2>Latest India Jobs — Calendar View</h2>
+                    <p>Jobs grouped by posting date. Click a day to see its jobs.</p>
+                </div>
+
+                <div class="calendar-container">
+                    <div class="calendar-nav">
+                        <button id="calPrevBtn" class="btn btn-secondary">◀</button>
+                        <span id="calMonthLabel" class="cal-month-label">—</span>
+                        <button id="calNextBtn" class="btn btn-secondary">▶</button>
+                    </div>
+                    <div id="calendarGrid" class="calendar-grid"></div>
+                    <div id="calendarDayJobs" class="calendar-day-jobs"></div>
+                </div>
+            </div>
+
+            <!-- Answer Bank / Q&A Tab -->
+            <div id="qaTab" class="tab-content">
+                <div class="profile-header">
+                    <h2>Answer Bank — Train Your Auto-Apply</h2>
+                    <p>When a form asks something not in your profile, it shows up here. Answer once — the system reuses it for similar questions forever.</p>
+                </div>
+
+                <div class="form-section">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+                        <h3 style="color:var(--primary);margin:0;">Pending Questions</h3>
+                        <button id="refreshQuestionsBtn" class="btn btn-secondary">🔄 Refresh</button>
+                    </div>
+                    <div id="pendingQuestionsList"></div>
+                </div>
+
+                <div class="form-section" style="margin-top:2rem;">
+                    <h3 style="color:var(--primary);margin-bottom:1rem;">Saved Answers</h3>
+                    <div id="savedAnswersList"></div>
                 </div>
             </div>
 

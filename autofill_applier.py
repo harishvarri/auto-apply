@@ -2,12 +2,82 @@ import sys
 import json
 import os
 import time
+import datetime
 import urllib.request
 import urllib.parse
 from playwright.sync_api import sync_playwright
 
 # Gemini AI enabled - fallback using API key
 HAS_GEMINI = True
+
+# Module-level context for the job currently being processed, so obstacle
+# questions can be logged with the right job metadata.
+CURRENT_JOB = {}
+
+PENDING_QUESTIONS_FILE = "pending_questions.json"
+
+
+def _normalize_question(text):
+    """Normalize a question label for dedup / keyword matching."""
+    return " ".join((text or "").lower().split())[:200]
+
+
+def log_pending_question(question, qtype="text", options=None, ai_answer=None):
+    """Record an 'obstacle' question (one with no saved profile answer) so the
+    user can provide a canonical answer in the dashboard that will be reused.
+
+    Deduped by normalized question text; increments a seen counter. Stores the
+    AI's best-guess answer (used for this submission) so the user can confirm
+    or override it later.
+    """
+    try:
+        norm = _normalize_question(question)
+        if not norm or len(norm) < 3:
+            return
+        try:
+            with open(PENDING_QUESTIONS_FILE, "r", encoding="utf-8") as f:
+                pending = json.load(f)
+        except Exception:
+            pending = []
+
+        # If already answered (exists in custom_keywords) skip logging
+        try:
+            prof = load_profile()
+            for kw in (prof.get("custom_keywords", {}) or {}):
+                if kw.lower() in norm or norm in kw.lower():
+                    return  # user already answered this; reuse handles it
+        except Exception:
+            pass
+
+        for q in pending:
+            if q.get("norm") == norm:
+                q["count"] = q.get("count", 1) + 1
+                q["last_seen"] = datetime.date.today().isoformat()
+                if ai_answer and not q.get("ai_answer"):
+                    q["ai_answer"] = ai_answer
+                with open(PENDING_QUESTIONS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(pending, f, indent=2)
+                return
+
+        pending.append({
+            "id": f"q_{abs(hash(norm)) % (10**10)}",
+            "question": question.strip()[:300],
+            "norm": norm,
+            "type": qtype,
+            "options": options or [],
+            "ai_answer": ai_answer or "",
+            "job_title": CURRENT_JOB.get("title", ""),
+            "company": CURRENT_JOB.get("company", ""),
+            "url": CURRENT_JOB.get("url", ""),
+            "first_seen": datetime.date.today().isoformat(),
+            "last_seen": datetime.date.today().isoformat(),
+            "count": 1,
+            "answered": False,
+        })
+        with open(PENDING_QUESTIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(pending, f, indent=2)
+    except Exception as e:
+        print(f"    [PENDING-Q ERROR] {e}")
 
 def call_gemini_api(prompt):
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -95,8 +165,15 @@ Based on the candidate profile context, should this box be checked? Respond with
 Return ONLY "Yes" or "No". Do not include any extra text."""
     else:
         return None
-        
-    return call_gemini_api(prompt)
+
+    answer = call_gemini_api(prompt)
+    # Every Gemini call means no saved profile answer existed -> obstacle question.
+    # Log it (with the AI's best guess) so the user can give a canonical answer.
+    try:
+        log_pending_question(label_text, el_type, options_list or [], answer)
+    except Exception:
+        pass
+    return answer
 
 def query_selector_all_across_frames(page, selector):
     elements = []
@@ -1263,6 +1340,13 @@ def handle_linkedin_easy_apply(page, profile):
 
 def handle_redirection_and_apply(page, profile, job, all_jobs):
     try:
+        # Set module context so obstacle questions get logged with job metadata
+        global CURRENT_JOB
+        CURRENT_JOB = {
+            "title": job.get("title", ""),
+            "company": job.get("company", ""),
+            "url": job.get("url", ""),
+        }
         update_status_banner(page, 'info', '🌌 Auto-Applier: Opening job application...')
         page.wait_for_timeout(3000)
         

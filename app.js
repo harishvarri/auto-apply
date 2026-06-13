@@ -96,6 +96,9 @@ async function loadData() {
             filterAndRenderJobs();
             filterAndRenderIndiaJobs();
             renderCustomJobs();
+            calViewDate = getLatestIndiaJobDate();
+            renderCalendar();
+            renderSavedAnswers();
         }
     } catch (e) {
         showToast("Error loading databases. Please run server.py", true);
@@ -914,6 +917,210 @@ function renderCustomJobs() {
     }).join('');
 }
 
+// ============================================================
+// CALENDAR TAB
+// ============================================================
+
+// Initialize calViewDate to the latest India job's date_posted, fallback 2026-06-13
+function getLatestIndiaJobDate() {
+    const indiaDates = jobs
+        .filter(j => isIndiaJob(j) && j.date_posted)
+        .map(j => j.date_posted)
+        .sort();
+    if (indiaDates.length) {
+        const d = new Date(indiaDates[indiaDates.length - 1] + 'T00:00:00');
+        if (!isNaN(d)) return d;
+    }
+    return new Date('2026-06-13T00:00:00');
+}
+
+let calViewDate = new Date('2026-06-13T00:00:00');
+
+function formatYMD(year, month, day) {
+    const m = String(month + 1).padStart(2, '0');
+    const d = String(day).padStart(2, '0');
+    return `${year}-${m}-${d}`;
+}
+
+function renderCalendar() {
+    const grid = document.getElementById('calendarGrid');
+    const label = document.getElementById('calMonthLabel');
+    if (!grid || !label) return;
+
+    // Build map of date_posted -> count of India jobs
+    const counts = {};
+    jobs.forEach(job => {
+        if (isIndiaJob(job) && job.date_posted) {
+            counts[job.date_posted] = (counts[job.date_posted] || 0) + 1;
+        }
+    });
+
+    const year = calViewDate.getFullYear();
+    const month = calViewDate.getMonth();
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'];
+    label.innerText = `${monthNames[month]} ${year}`;
+
+    const todayStr = '2026-06-13';
+    const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    let html = weekdays.map(w => `<div class="cal-weekday">${w}</div>`).join('');
+
+    // Leading empty cells
+    for (let i = 0; i < firstDay; i++) {
+        html += `<div class="cal-day empty"></div>`;
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = formatYMD(year, month, day);
+        const count = counts[dateStr] || 0;
+        const classes = ['cal-day'];
+        if (count > 0) classes.push('has-jobs');
+        if (dateStr === todayStr) classes.push('today');
+        const badge = count > 0 ? `<span class="cal-day-badge">${count}</span>` : '';
+        html += `<div class="${classes.join(' ')}" onclick="selectCalendarDay('${dateStr}')">
+            <span class="cal-day-num">${day}</span>
+            ${badge}
+        </div>`;
+    }
+
+    // Trailing cells to complete the last row
+    const totalCells = firstDay + daysInMonth;
+    const trailing = (7 - (totalCells % 7)) % 7;
+    for (let i = 0; i < trailing; i++) {
+        html += `<div class="cal-day empty"></div>`;
+    }
+
+    grid.innerHTML = html;
+}
+
+function selectCalendarDay(dateStr) {
+    const container = document.getElementById('calendarDayJobs');
+    if (!container) return;
+
+    const dayJobs = jobs.filter(j => isIndiaJob(j) && j.date_posted === dateStr);
+
+    if (dayJobs.length === 0) {
+        container.innerHTML = `<p style="color:var(--text-muted);padding:1rem 0;">No India jobs posted on ${escapeHtml(dateStr)}.</p>`;
+        return;
+    }
+
+    const cards = dayJobs.map(job => {
+        return `<div class="cal-job-card">
+            <div class="cal-job-main">
+                <h4>${escapeHtml(job.title)}</h4>
+                <p>${escapeHtml(job.company)} • ${escapeHtml(job.location)}</p>
+            </div>
+            <div class="cal-job-side">
+                <span class="match-badge">${parseInt(job.match_rate) || 70}% Match</span>
+                <span class="badge pending">${escapeHtml(job.source || 'Portal')}</span>
+                <a href="${safeUrl(job.url)}" target="_blank" rel="noopener noreferrer" class="cal-job-link">Open ↗</a>
+            </div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = `<h3 style="color:var(--primary);margin:1rem 0;">${dayJobs.length} job${dayJobs.length > 1 ? 's' : ''} posted on ${escapeHtml(dateStr)}</h3>${cards}`;
+}
+
+// ============================================================
+// ANSWER BANK / Q&A TAB
+// ============================================================
+
+async function loadPendingQuestions() {
+    const list = document.getElementById('pendingQuestionsList');
+    if (!list) return;
+    try {
+        const res = await fetch('/api/pending-questions');
+        if (!res.ok) throw new Error('Failed to fetch');
+        const questions = await res.json();
+
+        if (!Array.isArray(questions) || questions.length === 0) {
+            list.innerHTML = `<p style="color:var(--text-muted);padding:1rem 0;">No pending questions — your answer bank is fully trained! 🎉</p>`;
+            return;
+        }
+
+        list.innerHTML = questions.map(q => {
+            const taId = `qa-answer-${escapeHtml(String(q.id))}`;
+            const optionsHint = (Array.isArray(q.options) && q.options.length > 0)
+                ? `<div class="qa-meta" style="margin-top:0.4rem;">Options: ${q.options.map(o => escapeHtml(String(o))).join(' · ')}</div>`
+                : '';
+            const seenCount = q.count != null ? q.count : 1;
+            return `<div class="qa-card">
+                <div class="qa-question">${escapeHtml(q.question)}</div>
+                <div class="qa-meta">Seen ${escapeHtml(String(seenCount))}× · first asked at ${escapeHtml(q.company || 'Unknown')} — ${escapeHtml(q.job_title || 'Unknown role')}</div>
+                <textarea id="${taId}" class="qa-textarea" rows="3">${escapeHtml(q.ai_answer || '')}</textarea>
+                ${optionsHint}
+                <div class="qa-actions">
+                    <button class="btn btn-primary" onclick="saveQuestionAnswer('${escapeSingleQuote(String(q.id))}')">Save Answer</button>
+                    <button class="btn btn-secondary" onclick="dismissQuestion('${escapeSingleQuote(String(q.id))}')">Dismiss</button>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        list.innerHTML = `<p style="color:var(--text-muted);padding:1rem 0;">Could not load pending questions. Is the server running?</p>`;
+    }
+}
+
+async function saveQuestionAnswer(id) {
+    const ta = document.getElementById(`qa-answer-${id}`);
+    const answer = ta ? ta.value.trim() : '';
+    if (!answer) {
+        showToast("Please enter an answer before saving.", true);
+        return;
+    }
+    try {
+        const res = await fetch('/api/answer-question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, answer })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        showToast(`Answer saved! Reused via keyword "${data.keyword || ''}".`);
+        await loadData();
+        await loadPendingQuestions();
+        renderSavedAnswers();
+    } catch (e) {
+        showToast("Failed to save answer: " + e.message, true);
+    }
+}
+
+async function dismissQuestion(id) {
+    try {
+        const res = await fetch('/api/dismiss-question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        if (!res.ok) throw new Error('Failed');
+        showToast("Question dismissed.");
+        await loadPendingQuestions();
+    } catch (e) {
+        showToast("Failed to dismiss question.", true);
+    }
+}
+
+function renderSavedAnswers() {
+    const container = document.getElementById('savedAnswersList');
+    if (!container) return;
+    const customKeywords = (userProfile && userProfile.custom_keywords) || {};
+    const keys = Object.keys(customKeywords);
+
+    if (keys.length === 0) {
+        container.innerHTML = `<p style="color:var(--text-muted);padding:1rem 0;">No saved answers yet. Answer pending questions above to train your bank.</p>`;
+        return;
+    }
+
+    container.innerHTML = keys.map(keyword => `
+        <div class="saved-answer-row">
+            <span class="saved-answer-keyword">${escapeHtml(keyword)}</span>
+            <span class="saved-answer-value">${escapeHtml(customKeywords[keyword])}</span>
+        </div>
+    `).join('');
+}
+
 // Init
 window.addEventListener('DOMContentLoaded', () => {
     checkServerStatus();
@@ -928,4 +1135,36 @@ window.addEventListener('DOMContentLoaded', () => {
     indiaSearchInput.addEventListener('input', filterAndRenderIndiaJobs);
     indiaStatusFilter.addEventListener('change', filterAndRenderIndiaJobs);
     indiaSortControl.addEventListener('change', filterAndRenderIndiaJobs);
+
+    // Calendar nav buttons
+    const calPrevBtn = document.getElementById('calPrevBtn');
+    const calNextBtn = document.getElementById('calNextBtn');
+    if (calPrevBtn) calPrevBtn.addEventListener('click', () => {
+        calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() - 1, 1);
+        renderCalendar();
+    });
+    if (calNextBtn) calNextBtn.addEventListener('click', () => {
+        calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() + 1, 1);
+        renderCalendar();
+    });
+
+    // Answer Bank refresh button
+    const refreshQuestionsBtn = document.getElementById('refreshQuestionsBtn');
+    if (refreshQuestionsBtn) refreshQuestionsBtn.addEventListener('click', loadPendingQuestions);
+
+    // Render calendar / answer bank when their nav buttons are first clicked
+    navItems.forEach(item => {
+        const tab = item.getAttribute('data-tab');
+        if (tab === 'calendar') {
+            item.addEventListener('click', renderCalendar);
+        } else if (tab === 'qa') {
+            item.addEventListener('click', () => {
+                loadPendingQuestions();
+                renderSavedAnswers();
+            });
+        }
+    });
+
+    // Initial load of pending questions
+    loadPendingQuestions();
 });
