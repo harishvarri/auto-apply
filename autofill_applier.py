@@ -1182,60 +1182,150 @@ def save_success_screenshot(page, job):
         return None
 
 
-def handle_internshala_form(page, profile):
-    """Fill Internshala job/internship application modal or page."""
-    personal = profile.get("personal", {})
-    custom = profile.get("custom_responses", {})
+def _fill_and_submit(target, profile):
+    """Run the full autofill + submit pipeline on a destination application page.
+    Returns the target page. Bails (without submitting) if it's a login wall."""
     try:
-        # Click Apply button if present on the job detail page
-        for sel in ["button#btn-apply", "button.btn-apply", "a.apply-btn", "button:has-text('Apply Now')", "button:has-text('Apply')"]:
+        if detect_login_wall(target):
+            print("    [DEST] Destination requires login — leaving for user.")
+            return target
+        autofill_form(target, profile, wait_first=False)
+        fill_custom_fields_with_saved_responses(
+            target, profile, CURRENT_JOB.get("company", ""), CURRENT_JOB.get("title", ""))
+        fill_required_fields_last_pass(target, profile)
+        auto_submit_form(target)
+        target.wait_for_timeout(2000)
+        if check_validation_errors(target):
+            fill_required_fields_last_pass(target, profile)
+            auto_submit_form(target)
+            target.wait_for_timeout(1500)
+    except Exception as e:
+        print(f"    [DEST APPLY] {e}")
+    return target
+
+
+def _click_follow_tab(page, selectors, label=""):
+    """Click the first matching selector. If it opens a new tab, return that tab;
+    otherwise return the (possibly navigated) original page. Returns (page, clicked)."""
+    ctx = page.context
+    btn = None
+    for sel in selectors:
+        try:
+            b = page.locator(sel).first
+            if b.is_visible() and b.is_enabled():
+                btn = b
+                break
+        except Exception:
+            pass
+    if btn is None:
+        return page, False
+    try:
+        with ctx.expect_page(timeout=8000) as info:
+            btn.click()
+        newp = info.value
+        if label:
+            print(f"    [{label}] Followed redirect to a new tab.")
+        try:
+            newp.wait_for_load_state("domcontentloaded", timeout=20000)
+        except Exception:
+            pass
+        newp.wait_for_timeout(2500)
+        return newp, True
+    except Exception:
+        page.wait_for_timeout(3000)
+        return page, True
+
+
+def handle_internshala_form(page, profile):
+    """Drive Internshala's multi-step apply flow.
+
+    Real flow: job page -> click Apply -> 'Your Internshala resume' review page
+    -> Proceed -> application questions (cover letter / availability / employer
+    questions) -> Submit. We loop: at each step fill everything we can (saved
+    answers + Gemini fallback for unknown employer questions, which also logs
+    them to the Answer Bank), then click the forward/submit button. We stop when
+    a success page is detected or there's no forward button left.
+    Returns the page we ended on.
+    """
+    try:
+        # 1. Click the initial Apply button on the job/internship detail page.
+        for sel in [
+            "button#easy-apply-button", "button#continue_button",
+            "button.apply_now_button", "button:has-text('Apply now')",
+            "button:has-text('Apply')", "a.apply-btn", "button#btn-apply",
+        ]:
             try:
                 btn = page.locator(sel).first
-                if btn.is_visible():
+                if btn.is_visible() and btn.is_enabled():
                     btn.click()
-                    page.wait_for_timeout(2000)
+                    page.wait_for_timeout(2500)
                     break
             except Exception:
                 pass
-        # Fill cover letter
-        for sel in ["textarea[name='cover_letter']", "textarea[id*='cover']", "textarea[placeholder*='cover']"]:
+
+        # 1b. Some Internshala jobs redirect to an external company site via a
+        # "You will be redirected... Proceed to application" modal. Follow it.
+        try:
+            redirect_modal = page.locator("text=redirected to another website").first
+            if redirect_modal.is_visible():
+                target, _ = _click_follow_tab(
+                    page,
+                    ["a:has-text('Proceed to application')",
+                     "button:has-text('Proceed to application')",
+                     "a:has-text('Proceed')", "button:has-text('Proceed')"],
+                    "INTERNSHALA")
+                _fill_and_submit(target, profile)
+                return target
+        except Exception:
+            pass
+
+        # 2. Native flow: step through the application wizard.
+        for step in range(6):
+            # Fill standard + custom + required fields (Gemini logs unknowns).
             try:
-                el = page.locator(sel).first
-                if el.is_visible() and not el.input_value():
-                    cover = custom.get("why_join_company", f"I am enthusiastic about this opportunity and believe my skills in Python, AI/ML, and software development align well with the role requirements.")
-                    el.fill(cover)
+                autofill_form(page, profile, wait_first=False)
             except Exception:
                 pass
-        # Availability / joining date
-        for sel in ["input[name='availability']", "input[id*='availability']", "input[placeholder*='available']"]:
             try:
-                el = page.locator(sel).first
-                if el.is_visible() and not el.input_value():
-                    el.fill("Immediately")
-                    el.press("Tab")
+                fill_custom_fields_with_saved_responses(page, profile,
+                                                        CURRENT_JOB.get("company", ""),
+                                                        CURRENT_JOB.get("title", ""))
             except Exception:
                 pass
-        # Expected stipend / salary
-        for sel in ["input[name*='stipend']", "input[id*='ctc']", "input[placeholder*='expected']"]:
             try:
-                el = page.locator(sel).first
-                if el.is_visible() and not el.input_value():
-                    el.fill("As per company norms")
-                    el.press("Tab")
+                fill_required_fields_last_pass(page, profile)
             except Exception:
                 pass
-        # Submit the application modal
-        for sel in ["button[type='submit']", "button:has-text('Submit')", "input[type='submit']"]:
-            try:
-                btn = page.locator(sel).first
-                if btn.is_visible():
-                    btn.click()
-                    page.wait_for_timeout(2000)
-                    break
-            except Exception:
-                pass
+            page.wait_for_timeout(800)
+
+            # Click the step-forward / submit button.
+            clicked = False
+            for sel in [
+                "button:has-text('Submit application')",
+                "button:has-text('Submit')",
+                "button:has-text('Proceed')",
+                "button:has-text('Continue')",
+                "button:has-text('Next')",
+                "button#submit", "input[type='submit']",
+                "button[type='submit']",
+            ]:
+                try:
+                    btn = page.locator(sel).first
+                    if btn.is_visible() and btn.is_enabled():
+                        btn.click()
+                        page.wait_for_timeout(2500)
+                        clicked = True
+                        break
+                except Exception:
+                    pass
+
+            if not clicked:
+                break
+            if verify_submission_success(page):
+                break
     except Exception as e:
         print(f"    [INTERNSHALA] Error: {e}")
+    return page
 
 
 def handle_naukri_form(page, profile):
@@ -1290,52 +1380,119 @@ def handle_naukri_form(page, profile):
 
 
 def handle_linkedin_easy_apply(page, profile):
-    """Handle LinkedIn Easy Apply multi-step modal."""
-    personal = profile.get("personal", {})
-    custom = profile.get("custom_responses", {})
+    """Handle LinkedIn apply — both 'Easy Apply' (in-page modal) and the far more
+    common external 'Apply' button that opens the company's own application site
+    in a new tab. Most LinkedIn guest-API jobs are the external kind ('Responses
+    managed off LinkedIn'), so we follow the redirect and autofill there.
+    Returns the page we ended on (may be a new tab on the company site).
+    """
     try:
-        # Click Easy Apply button
-        for sel in ["button.jobs-apply-button", "button:has-text('Easy Apply')", "button:has-text('Apply')"]:
+        # Detect an Easy Apply button specifically.
+        is_easy = False
+        easy_btn = None
+        for sel in ["button.jobs-apply-button:has-text('Easy Apply')", "button:has-text('Easy Apply')"]:
             try:
-                btn = page.locator(sel).first
-                if btn.is_visible():
-                    btn.click()
-                    page.wait_for_timeout(2500)
+                b = page.locator(sel).first
+                if b.is_visible():
+                    is_easy = True
+                    easy_btn = b
                     break
             except Exception:
                 pass
-        # Step through the modal up to 8 steps
-        for step in range(8):
-            try:
-                # Fill any visible inputs
-                autofill_form(page, profile, wait_first=False)
-                fill_required_fields_last_pass(page, profile)
-                page.wait_for_timeout(1000)
-                # Click Next / Review / Submit
-                clicked = False
-                for sel in ["button:has-text('Submit application')", "button:has-text('Review')", "button:has-text('Next')", "button[aria-label*='Continue']"]:
+
+        if is_easy and easy_btn is not None:
+            # In-page multi-step modal flow.
+            easy_btn.click()
+            page.wait_for_timeout(2500)
+            for step in range(8):
+                try:
+                    autofill_form(page, profile, wait_first=False)
+                    fill_custom_fields_with_saved_responses(page, profile,
+                                                            CURRENT_JOB.get("company", ""),
+                                                            CURRENT_JOB.get("title", ""))
+                    fill_required_fields_last_pass(page, profile)
+                    page.wait_for_timeout(1000)
+                    clicked = False
+                    for sel in ["button:has-text('Submit application')", "button:has-text('Review')",
+                                "button:has-text('Next')", "button[aria-label*='Continue']"]:
+                        try:
+                            btn = page.locator(sel).first
+                            if btn.is_visible() and btn.is_enabled():
+                                btn.click()
+                                page.wait_for_timeout(2000)
+                                clicked = True
+                                break
+                        except Exception:
+                            pass
+                    if not clicked:
+                        break
                     try:
-                        btn = page.locator(sel).first
-                        if btn.is_visible() and btn.is_enabled():
-                            btn.click()
-                            page.wait_for_timeout(2000)
-                            clicked = True
+                        modal = page.locator(".jobs-easy-apply-modal, .artdeco-modal").first
+                        if not modal.is_visible():
                             break
                     except Exception:
-                        pass
-                if not clicked:
-                    break
-                # Check if modal closed (application submitted)
-                try:
-                    modal = page.locator(".jobs-easy-apply-modal, .artdeco-modal").first
-                    if not modal.is_visible():
                         break
                 except Exception:
                     break
+            return page
+
+        # External apply: click 'Apply' and follow the redirect to the company
+        # site, which usually opens in a NEW TAB.
+        ctx = page.context
+        target = page
+        apply_btn = None
+        for sel in ["button:has-text('Apply')", "a:has-text('Apply')", "a.jobs-apply-button"]:
+            try:
+                b = page.locator(sel).first
+                if b.is_visible() and b.is_enabled():
+                    apply_btn = b
+                    break
             except Exception:
-                break
+                pass
+
+        if apply_btn is None:
+            print("    [LINKEDIN] No Apply button found.")
+            return page
+
+        try:
+            with ctx.expect_page(timeout=8000) as new_info:
+                apply_btn.click()
+            target = new_info.value  # new tab opened on company site
+            print("    [LINKEDIN] Followed external Apply to a new tab.")
+        except Exception:
+            # No new tab — maybe same-tab navigation.
+            page.wait_for_timeout(3000)
+            target = page
+
+        try:
+            target.wait_for_load_state("domcontentloaded", timeout=20000)
+        except Exception:
+            pass
+        target.wait_for_timeout(3000)
+
+        # If the company site itself forces a login, bail (finalize marks it).
+        if detect_login_wall(target):
+            return target
+
+        # Run the standard autofill pipeline on the company application form.
+        try:
+            autofill_form(target, profile, wait_first=False)
+            fill_custom_fields_with_saved_responses(target, profile,
+                                                    CURRENT_JOB.get("company", ""),
+                                                    CURRENT_JOB.get("title", ""))
+            fill_required_fields_last_pass(target, profile)
+            auto_submit_form(target)
+            target.wait_for_timeout(2000)
+            if check_validation_errors(target):
+                fill_required_fields_last_pass(target, profile)
+                auto_submit_form(target)
+                target.wait_for_timeout(1500)
+        except Exception as e:
+            print(f"    [LINKEDIN] External form error: {e}")
+        return target
     except Exception as e:
         print(f"    [LINKEDIN] Error: {e}")
+        return page
 
 
 def detect_login_wall(page):
@@ -1407,17 +1564,23 @@ def handle_redirection_and_apply(page, profile, job, all_jobs):
 
         # Platform-specific handlers (these platforms usually require a login;
         # we run the handler, then verify rather than blindly claiming success).
-        def finalize_platform(handler_name):
+        # Handlers RETURN the page they ended on (LinkedIn may open a new tab on
+        # an external company site) so we verify on the correct page.
+        def finalize_platform(handler_name, target=None):
             """Run after a platform handler: detect login wall, verify, set status."""
-            wall = detect_login_wall(page)
+            tgt = target or page
+            wall = detect_login_wall(tgt)
             if wall:
                 print(f"  [{handler_name}] Hit sign-in wall at '{wall}'. Marking 'Login Required'.")
-                update_status_banner(page, 'error', f'🌌 Sign-in required ({wall}). Log in once here, then retry.')
+                try:
+                    update_status_banner(tgt, 'error', f'🌌 Sign-in required ({wall}). Log in once here, then retry.')
+                except Exception:
+                    pass
                 job['status'] = 'Login Required'
                 save_jobs(all_jobs)
                 return False
-            save_success_screenshot(page, job)
-            if verify_submission_success(page):
+            save_success_screenshot(tgt, job)
+            if verify_submission_success(tgt):
                 print(f"  [{handler_name}] Verified application submitted.")
                 job['status'] = 'Applied'
             else:
@@ -1429,8 +1592,8 @@ def handle_redirection_and_apply(page, profile, job, all_jobs):
         if "internshala.com" in current_url:
             print("  [PLATFORM] Internshala detected — using dedicated handler")
             update_status_banner(page, 'info', '🌌 Auto-Applier: Filling Internshala application...')
-            handle_internshala_form(page, profile)
-            result = finalize_platform("INTERNSHALA")
+            end_page = handle_internshala_form(page, profile) or page
+            result = finalize_platform("INTERNSHALA", end_page)
             try:
                 page.close()
             except Exception:
@@ -1440,8 +1603,8 @@ def handle_redirection_and_apply(page, profile, job, all_jobs):
         if "naukri.com" in current_url:
             print("  [PLATFORM] Naukri detected — using dedicated handler")
             update_status_banner(page, 'info', '🌌 Auto-Applier: Filling Naukri application...')
-            handle_naukri_form(page, profile)
-            result = finalize_platform("NAUKRI")
+            end_page = handle_naukri_form(page, profile) or page
+            result = finalize_platform("NAUKRI", end_page)
             try:
                 page.close()
             except Exception:
@@ -1449,10 +1612,10 @@ def handle_redirection_and_apply(page, profile, job, all_jobs):
             return result
 
         if "linkedin.com/jobs" in current_url:
-            print("  [PLATFORM] LinkedIn detected — using Easy Apply handler")
-            update_status_banner(page, 'info', '🌌 Auto-Applier: LinkedIn Easy Apply...')
-            handle_linkedin_easy_apply(page, profile)
-            result = finalize_platform("LINKEDIN")
+            print("  [PLATFORM] LinkedIn detected — using Apply handler")
+            update_status_banner(page, 'info', '🌌 Auto-Applier: LinkedIn apply...')
+            end_page = handle_linkedin_easy_apply(page, profile) or page
+            result = finalize_platform("LINKEDIN", end_page)
             try:
                 page.close()
             except Exception:
