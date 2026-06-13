@@ -1338,6 +1338,39 @@ def handle_linkedin_easy_apply(page, profile):
         print(f"    [LINKEDIN] Error: {e}")
 
 
+def detect_login_wall(page):
+    """Return a platform name if the current page is a login/auth wall, else None.
+
+    Many job platforms (LinkedIn, Internshala, Naukri, Indeed) force a sign-in
+    before you can apply. We can't (and shouldn't) auto-enter passwords, so we
+    detect the wall and mark the job 'Login Required' instead of stalling.
+    """
+    try:
+        url = (page.url or "").lower()
+        # URL-based detection (most reliable)
+        login_url_markers = [
+            "accounts.google.com", "/login", "/signin", "/sign-in",
+            "/auth", "/authwall", "linkedin.com/uas/login",
+            "linkedin.com/checkpoint", "login.naukri.com", "internshala.com/login",
+            "secure.indeed.com", "/account/login",
+        ]
+        if any(m in url for m in login_url_markers):
+            return url.split('/')[2] if '//' in url else url
+        # Content-based detection: a visible password field with no application form
+        try:
+            has_password = page.locator("input[type='password']").count() > 0
+            has_app_form = page.locator(
+                "input[type='file'], textarea, input[name*='resume' i]"
+            ).count() > 0
+            if has_password and not has_app_form:
+                return url.split('/')[2] if '//' in url else "sign-in page"
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return None
+
+
 def handle_redirection_and_apply(page, profile, job, all_jobs):
     try:
         # Set module context so obstacle questions get logged with job metadata
@@ -1349,6 +1382,17 @@ def handle_redirection_and_apply(page, profile, job, all_jobs):
         }
         update_status_banner(page, 'info', '🌌 Auto-Applier: Opening job application...')
         page.wait_for_timeout(3000)
+
+        # Bail out early if we've landed on a login/auth wall — we cannot enter
+        # passwords. Mark the job so the user can log in once in this browser.
+        wall = detect_login_wall(page)
+        if wall:
+            print(f"  [LOGIN WALL] '{wall}' requires sign-in — cannot auto-apply. Marking 'Login Required'.")
+            update_status_banner(page, 'error', f'🌌 Sign-in required at {wall}. Log in once here, then retry.')
+            job['status'] = 'Login Required'
+            save_jobs(all_jobs)
+            page.wait_for_timeout(1500)
+            return False
         
         apply_button_selectors = [
             "a:has-text('Apply for this position' i)",
@@ -1361,45 +1405,59 @@ def handle_redirection_and_apply(page, profile, job, all_jobs):
         current_url = page.url
         job_source = job.get("source", "")
 
-        # Platform-specific handlers
+        # Platform-specific handlers (these platforms usually require a login;
+        # we run the handler, then verify rather than blindly claiming success).
+        def finalize_platform(handler_name):
+            """Run after a platform handler: detect login wall, verify, set status."""
+            wall = detect_login_wall(page)
+            if wall:
+                print(f"  [{handler_name}] Hit sign-in wall at '{wall}'. Marking 'Login Required'.")
+                update_status_banner(page, 'error', f'🌌 Sign-in required ({wall}). Log in once here, then retry.')
+                job['status'] = 'Login Required'
+                save_jobs(all_jobs)
+                return False
+            save_success_screenshot(page, job)
+            if verify_submission_success(page):
+                print(f"  [{handler_name}] Verified application submitted.")
+                job['status'] = 'Applied'
+            else:
+                print(f"  [{handler_name}] Submitted but unverified — flagging for review.")
+                job['status'] = 'Review Required'
+            save_jobs(all_jobs)
+            return job['status'] == 'Applied'
+
         if "internshala.com" in current_url:
             print("  [PLATFORM] Internshala detected — using dedicated handler")
             update_status_banner(page, 'info', '🌌 Auto-Applier: Filling Internshala application...')
             handle_internshala_form(page, profile)
-            save_success_screenshot(page, job)
-            job['status'] = 'Applied'
-            save_jobs(all_jobs)
+            result = finalize_platform("INTERNSHALA")
             try:
                 page.close()
             except Exception:
                 pass
-            return True
+            return result
 
         if "naukri.com" in current_url:
             print("  [PLATFORM] Naukri detected — using dedicated handler")
             update_status_banner(page, 'info', '🌌 Auto-Applier: Filling Naukri application...')
             handle_naukri_form(page, profile)
-            save_success_screenshot(page, job)
-            job['status'] = 'Applied'
-            save_jobs(all_jobs)
+            result = finalize_platform("NAUKRI")
             try:
                 page.close()
             except Exception:
                 pass
-            return True
+            return result
 
         if "linkedin.com/jobs" in current_url:
             print("  [PLATFORM] LinkedIn detected — using Easy Apply handler")
             update_status_banner(page, 'info', '🌌 Auto-Applier: LinkedIn Easy Apply...')
             handle_linkedin_easy_apply(page, profile)
-            save_success_screenshot(page, job)
-            job['status'] = 'Applied'
-            save_jobs(all_jobs)
+            result = finalize_platform("LINKEDIN")
             try:
                 page.close()
             except Exception:
                 pass
-            return True
+            return result
 
         if "weworkremotely.com" in current_url:
             try:

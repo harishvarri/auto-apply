@@ -227,6 +227,32 @@ function renderStats() {
     indiaStatMatchEl.innerText = `${indiaAvgMatch}%`;
 }
 
+// Map a job status to a badge {class, text} for list rendering.
+function statusBadge(status) {
+    switch (status) {
+        case 'Applied': return { cls: 'applied', text: 'Applied' };
+        case 'Review Required': return { cls: 'review', text: 'Review' };
+        case 'Login Required': return { cls: 'login', text: 'Login Needed' };
+        default: return { cls: 'pending', text: 'Pending' };
+    }
+}
+
+// Login-free application sources (no account/sign-in needed to apply).
+// Greenhouse & Lever forms submit directly; LinkedIn/Internshala/Naukri
+// require a one-time manual login in the automation browser first.
+const LOGIN_FREE_SOURCES = ['Greenhouse Form', 'Lever Form', 'Custom URL'];
+function isLoginFree(job) {
+    return LOGIN_FREE_SOURCES.includes(job.source);
+}
+
+// Sort comparator: login-free jobs first, then by match rate descending.
+function batchSort(a, b) {
+    const af = isLoginFree(a) ? 1 : 0;
+    const bf = isLoginFree(b) ? 1 : 0;
+    if (af !== bf) return bf - af;
+    return (b.match_rate || 70) - (a.match_rate || 70);
+}
+
 // Helper to identify India-based jobs
 function isIndiaJob(job) {
     if (!job || !job.location) return false;
@@ -292,22 +318,22 @@ function filterAndRenderJobs() {
         const item = document.createElement('div');
         item.className = `job-item ${selectedJobId === job.id ? 'selected' : ''}`;
         item.addEventListener('click', () => selectJob(job.id));
-        
-        const isApplied = job.status === 'Applied';
-        const badgeClass = isApplied ? 'applied' : 'pending';
-        const badgeText = isApplied ? 'Applied' : 'Pending';
-        
+
+        const b = statusBadge(job.status);
+        const freeTag = isLoginFree(job) ? '<span class="badge free">No login</span>' : '';
+
         item.innerHTML = `
             <div class="job-meta-main">
                 <h3>${job.title}</h3>
                 <p>${job.company} • ${job.location}</p>
             </div>
             <div class="job-meta-side">
-                <span class="badge ${badgeClass}">${badgeText}</span>
+                <span class="badge ${b.cls}">${b.text}</span>
+                ${freeTag}
                 <span class="match-badge">${job.match_rate || 70}% Match</span>
             </div>
         `;
-        
+
         jobsListEl.appendChild(item);
     });
 }
@@ -357,22 +383,22 @@ function filterAndRenderIndiaJobs() {
         const item = document.createElement('div');
         item.className = `job-item ${selectedIndiaJobId === job.id ? 'selected' : ''}`;
         item.addEventListener('click', () => selectIndiaJob(job.id));
-        
-        const isApplied = job.status === 'Applied';
-        const badgeClass = isApplied ? 'applied' : 'pending';
-        const badgeText = isApplied ? 'Applied' : 'Pending';
-        
+
+        const b = statusBadge(job.status);
+        const freeTag = isLoginFree(job) ? '<span class="badge free">No login</span>' : '';
+
         item.innerHTML = `
             <div class="job-meta-main">
                 <h3>${job.title}</h3>
                 <p>${job.company} • ${job.location}</p>
             </div>
             <div class="job-meta-side">
-                <span class="badge ${badgeClass}">${badgeText}</span>
+                <span class="badge ${b.cls}">${b.text}</span>
+                ${freeTag}
                 <span class="match-badge">${job.match_rate || 70}% Match</span>
             </div>
         `;
-        
+
         indiaJobsListEl.appendChild(item);
     });
 }
@@ -676,9 +702,9 @@ document.getElementById('addKeywordBtn').addEventListener('click', () => {
 
 // Batch Apply Trigger
 batchApplyBtn.addEventListener('click', async () => {
-    let pendingJobs = jobs.filter(j => j.status === 'Pending' || !j.status);
-    pendingJobs.sort((a, b) => (b.match_rate || 70) - (a.match_rate || 70));
-    
+    let pendingJobs = jobs.filter(j => (j.status === 'Pending' || !j.status) && !isIndiaJob(j));
+    pendingJobs.sort(batchSort);
+
     if (pendingJobs.length === 0) {
         showToast("No pending jobs found to apply!", true);
         return;
@@ -739,8 +765,8 @@ batchApplyBtn.addEventListener('click', async () => {
 // India Batch Apply Trigger
 indiaBatchApplyBtn.addEventListener('click', async () => {
     let pendingJobs = jobs.filter(j => isIndiaJob(j) && (j.status === 'Pending' || !j.status));
-    pendingJobs.sort((a, b) => (b.match_rate || 70) - (a.match_rate || 70));
-    
+    pendingJobs.sort(batchSort);
+
     if (pendingJobs.length === 0) {
         showToast("No pending India jobs found to apply!", true);
         return;

@@ -395,6 +395,25 @@ body {
     border: 1px solid var(--success);
 }
 
+.badge.review {
+    background: var(--warning-glow);
+    color: var(--warning);
+    border: 1px solid var(--warning);
+}
+
+.badge.login {
+    background: rgba(239, 68, 68, 0.12);
+    color: #F87171;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.badge.free {
+    background: hsla(189, 94%, 43%, 0.12);
+    color: var(--accent-cyan);
+    border: 1px solid var(--accent-cyan);
+    font-size: 0.68rem;
+}
+
 .match-badge {
     font-size: 0.8rem;
     font-weight: 700;
