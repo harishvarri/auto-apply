@@ -324,6 +324,102 @@ class JobApplierHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error_response(500, f"Dismiss error: {str(e)}")
 
+        elif self.path == '/api/analyze-job':
+            # AI Match Analysis: score a job's fit against the user's resume/profile
+            # and generate a tailored cover letter. One Gemini call, cached on the
+            # job in jobs_database.json so repeat opens don't re-call the API.
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            try:
+                import urllib.request as ureq
+                data = json.loads(post_data)
+                job_id = data.get('job_id')
+                force = bool(data.get('force'))
+
+                if not os.path.exists('jobs_database.json'):
+                    self.send_error_response(400, "No jobs database")
+                    return
+                with open('jobs_database.json', 'r', encoding='utf-8') as f:
+                    jobs = json.load(f)
+                job = next((j for j in jobs if j.get('id') == job_id), None)
+                if not job:
+                    self.send_error_response(404, "Job not found")
+                    return
+
+                # Return cached analysis unless a refresh is forced.
+                if job.get('ai_analysis') and not force:
+                    self.send_success_response(job['ai_analysis'])
+                    return
+
+                api_key = os.environ.get('GEMINI_API_KEY', '')
+                if not api_key:
+                    self.send_error_response(400, "GEMINI_API_KEY not set")
+                    return
+
+                profile = {}
+                if os.path.exists('profile.json'):
+                    with open('profile.json', 'r', encoding='utf-8') as f:
+                        profile = json.load(f)
+                personal = profile.get('personal', {})
+                skills = profile.get('skills', {})
+                education = profile.get('education', [])
+                experience = profile.get('experience', [])
+                customs = profile.get('custom_responses', {})
+
+                candidate = (
+                    f"Name: {personal.get('full_name','')}\n"
+                    f"Education: {json.dumps(education)}\n"
+                    f"Experience: {json.dumps(experience)}\n"
+                    f"Skills: {json.dumps(skills)}\n"
+                    f"Years experience: {customs.get('years_experience','0 (fresher)')}\n"
+                    f"Grad year: {customs.get('graduation_year','')}, GPA: {customs.get('gpa_cgpa','')}\n"
+                )
+                job_desc = (
+                    f"Title: {job.get('title','')}\n"
+                    f"Company: {job.get('company','')}\n"
+                    f"Location: {job.get('location','')}\n"
+                    f"Required skills: {', '.join(job.get('skills_required', []))}\n"
+                    f"Description: {job.get('description','')}\n"
+                )
+                prompt = (
+                    "You are a career coach helping a student/new-grad applicant. "
+                    "Given the CANDIDATE and the JOB, return ONLY a JSON object (no markdown) with keys:\n"
+                    '{"fit_score": <int 0-100>, "interview_chance": "<Low|Medium|High>", '
+                    '"reasoning": "<2-3 sentence honest assessment>", '
+                    '"strengths": ["<short bullet>", ...], "gaps": ["<short bullet>", ...], '
+                    '"cover_letter": "<120-160 word tailored cover letter, first person, specific to this role and the candidate\'s real background, no placeholders>"}\n\n'
+                    f"CANDIDATE:\n{candidate}\n\nJOB:\n{job_desc}"
+                )
+
+                model = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": 0.3, "maxOutputTokens": 700}
+                }
+                req = ureq.Request(url, data=json.dumps(payload).encode('utf-8'),
+                                   headers={"Content-Type": "application/json"}, method='POST')
+                with ureq.urlopen(req, timeout=40) as resp:
+                    res_data = json.loads(resp.read().decode('utf-8'))
+                text = res_data['candidates'][0]['content']['parts'][0]['text'].strip()
+                if '```' in text:
+                    text = text.split('```')[1]
+                    if text.startswith('json'):
+                        text = text[4:]
+                    text = text.strip()
+                analysis = json.loads(text)
+
+                # Cache on the job and persist.
+                job['ai_analysis'] = analysis
+                if isinstance(analysis.get('fit_score'), int):
+                    job['match_rate'] = analysis['fit_score']
+                with open('jobs_database.json', 'w', encoding='utf-8') as f:
+                    json.dump(jobs, f, indent=2)
+
+                self.send_success_response(analysis)
+            except Exception as e:
+                self.send_error_response(500, f"Analyze job error: {str(e)}")
+
         else:
             self.send_error_response(404, "Endpoint not found")
 

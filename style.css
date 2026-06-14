@@ -747,6 +747,26 @@ body {
     color: #F87171;
 }
 
+/* AI Match Analysis panel */
+.ai-analysis { font-size: 0.85rem; }
+.ai-score-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+.ai-score {
+    font-size: 2rem; font-weight: 800; color: var(--accent-cyan);
+    line-height: 1; display: flex; align-items: baseline;
+}
+.ai-score span { font-size: 1rem; margin-left: 2px; }
+.ai-score-meta { font-size: 0.8rem; color: var(--text-secondary); }
+.ai-reasoning { color: var(--text-secondary); line-height: 1.5; margin-bottom: 0.6rem; }
+.ai-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.ai-cols h5 { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 0.3rem; }
+.ai-cols ul { margin: 0; padding-left: 1.1rem; color: var(--text-secondary); }
+.ai-cols li { margin-bottom: 0.2rem; }
+.ai-cover {
+    width: 100%; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border);
+    border-radius: 8px; color: var(--text-primary); padding: 0.6rem; font-family: inherit;
+    font-size: 0.83rem; line-height: 1.45; resize: vertical;
+}
+
 /* Global form-section card (used in Q&A, Quick Apply, Calendar tabs) */
 .form-section {
     background: var(--glass-card);

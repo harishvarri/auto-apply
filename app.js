@@ -459,6 +459,13 @@ function selectIndiaJob(jobId) {
                 <p>${escapeHtml(job.description)}</p>
             </div>
 
+            <div class="detail-section">
+                <h4>🤖 AI Match & Cover Letter</h4>
+                <div id="aiAnalysisBox_india">
+                    <button id="aiAnalyzeBtn_india" class="btn btn-secondary" style="width:100%;">Analyze fit with AI</button>
+                </div>
+            </div>
+
             <div class="actions-section">
                 <button id="indiaApplyBtn" class="${applyButtonClass}" style="width: 100%; font-size: 1rem; padding: 0.9rem;">
                     ${applyButtonText}
@@ -472,10 +479,12 @@ function selectIndiaJob(jobId) {
             </div>
         </div>
     `;
-    
+
     // Add Click Listeners
     document.getElementById('indiaApplyBtn').addEventListener('click', () => runAutofill(job.id));
     document.getElementById('indiaMarkAppliedBtn').addEventListener('click', () => toggleJobAppliedStatus(job.id));
+    document.getElementById('aiAnalyzeBtn_india').addEventListener('click', () => runAiAnalysis(job.id, 'aiAnalysisBox_india'));
+    if (job.ai_analysis) renderAiAnalysis(job.ai_analysis, 'aiAnalysisBox_india', job.id);
     
     // Highlight this job specifically
     const items = indiaJobsListEl.querySelectorAll('.job-item');
@@ -544,6 +553,13 @@ function selectJob(jobId) {
                 <p>${escapeHtml(job.description)}</p>
             </div>
 
+            <div class="detail-section">
+                <h4>🤖 AI Match & Cover Letter</h4>
+                <div id="aiAnalysisBox_global">
+                    <button id="aiAnalyzeBtn_global" class="btn btn-secondary" style="width:100%;">Analyze fit with AI</button>
+                </div>
+            </div>
+
             <div class="actions-section">
                 <button id="applyBtn" class="${applyButtonClass}" style="width: 100%; font-size: 1rem; padding: 0.9rem;">
                     ${applyButtonText}
@@ -557,14 +573,86 @@ function selectJob(jobId) {
             </div>
         </div>
     `;
-    
+
     // Add Click Listeners
     document.getElementById('applyBtn').addEventListener('click', () => runAutofill(job.id));
     document.getElementById('markAppliedBtn').addEventListener('click', () => toggleJobAppliedStatus(job.id));
-    
+    document.getElementById('aiAnalyzeBtn_global').addEventListener('click', () => runAiAnalysis(job.id, 'aiAnalysisBox_global'));
+    if (job.ai_analysis) renderAiAnalysis(job.ai_analysis, 'aiAnalysisBox_global', job.id);
+
     // Re-render select styles on lists
     filterAndRenderJobs();
 }
+
+// ============================================================
+// AI MATCH ANALYSIS + COVER LETTER (on-demand, one Gemini call, cached)
+// ============================================================
+async function runAiAnalysis(jobId, boxId, force = false) {
+    const box = document.getElementById(boxId);
+    if (!box) return;
+    box.innerHTML = `<p style="color:var(--text-muted);font-size:0.85rem;">🤖 Analyzing your resume against this role…</p>`;
+    try {
+        const res = await fetch('/api/analyze-job', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ job_id: jobId, force })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Analysis failed');
+        // Reflect updated match in local state
+        const job = jobs.find(j => j.id === jobId);
+        if (job) { job.ai_analysis = data; if (typeof data.fit_score === 'number') job.match_rate = data.fit_score; }
+        renderAiAnalysis(data, boxId, jobId);
+        showToast('AI match analysis ready!');
+    } catch (e) {
+        box.innerHTML = `<p style="color:var(--warning);font-size:0.85rem;">${escapeHtml(e.message)}</p>
+            <button class="btn btn-secondary" style="width:100%;margin-top:0.5rem;" onclick="runAiAnalysis('${escapeSingleQuote(jobId)}','${boxId}',true)">Retry</button>`;
+    }
+}
+
+function renderAiAnalysis(a, boxId, jobId) {
+    const box = document.getElementById(boxId);
+    if (!box || !a) return;
+    const score = (typeof a.fit_score === 'number') ? a.fit_score : '—';
+    const chanceColor = a.interview_chance === 'High' ? 'var(--success)'
+        : a.interview_chance === 'Medium' ? 'var(--warning)' : 'var(--text-muted)';
+    const strengths = (a.strengths || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+    const gaps = (a.gaps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+    const cover = a.cover_letter || '';
+    box.innerHTML = `
+        <div class="ai-analysis">
+            <div class="ai-score-row">
+                <div class="ai-score">${score}<span>%</span></div>
+                <div class="ai-score-meta">
+                    <div>Fit score</div>
+                    <div style="color:${chanceColor};font-weight:700;">Interview chance: ${escapeHtml(a.interview_chance || '—')}</div>
+                </div>
+            </div>
+            ${a.reasoning ? `<p class="ai-reasoning">${escapeHtml(a.reasoning)}</p>` : ''}
+            <div class="ai-cols">
+                ${strengths ? `<div><h5>✅ Strengths</h5><ul>${strengths}</ul></div>` : ''}
+                ${gaps ? `<div><h5>⚠️ Gaps</h5><ul>${gaps}</ul></div>` : ''}
+            </div>
+            ${cover ? `
+            <h5 style="margin-top:0.6rem;">✉️ Tailored cover letter</h5>
+            <textarea class="ai-cover" rows="7" readonly>${escapeHtml(cover)}</textarea>
+            <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+                <button class="btn btn-primary" style="flex:1;" onclick="copyCoverLetter('${boxId}')">Copy cover letter</button>
+                <button class="btn btn-secondary" onclick="runAiAnalysis('${escapeSingleQuote(jobId)}','${boxId}',true)">↻ Redo</button>
+            </div>` : ''}
+        </div>`;
+}
+
+window.copyCoverLetter = function(boxId) {
+    const box = document.getElementById(boxId);
+    const ta = box && box.querySelector('.ai-cover');
+    if (!ta) return;
+    navigator.clipboard.writeText(ta.value).then(
+        () => showToast('Cover letter copied to clipboard!'),
+        () => { ta.select(); document.execCommand('copy'); showToast('Cover letter copied!'); }
+    );
+};
+window.runAiAnalysis = runAiAnalysis;
 
 // Launch Playwright Applier
 async function runAutofill(jobId) {
